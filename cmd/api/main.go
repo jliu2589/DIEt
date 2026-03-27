@@ -23,11 +23,13 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// 1) Config
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
 
+	// 2) Database pool
 	pool, err := db.NewPool(ctx, cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("connect to database: %v", err)
@@ -41,9 +43,13 @@ func main() {
 	}
 	defer closePool()
 
+	// 3) Repositories
 	repos := repositories.New(pool)
+
+	// 4) OpenAI client
 	openAIClient := openaiservice.NewClient(cfg.OpenAIAPIKey, "")
-	telegramBotClient := telegramservice.NewBotClient(cfg.TelegramBotToken)
+
+	// 5) Meal service
 	mealSvc := mealservice.NewService(
 		repos.MealEvents,
 		repos.MealAnalysis,
@@ -51,8 +57,14 @@ func main() {
 		repos.DailyNutritionSummary,
 		openAIClient,
 	)
+
+	// 6) Telegram bot client
+	telegramBotClient := telegramservice.NewBotClient(cfg.TelegramBotToken)
+
+	// 7) Telegram service
 	telegramSvc := telegramservice.NewService(mealSvc, telegramBotClient)
 
+	// 8) Handlers + 9) Gin router
 	router := server.NewRouter(server.Dependencies{
 		HealthHandler:  handlers.NewHealthHandler(),
 		MealHandler:    handlers.NewMealHandler(mealSvc),
@@ -64,6 +76,7 @@ func main() {
 		),
 	})
 
+	// 10) HTTP server
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           router,
