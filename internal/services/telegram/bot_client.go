@@ -11,18 +11,33 @@ import (
 	"time"
 )
 
-const telegramAPIBaseURL = "https://api.telegram.org"
+const (
+	telegramAPIBaseURL      = "https://api.telegram.org"
+	telegramRequestTimeout  = 15 * time.Second
+	maxTelegramErrorPreview = 512
+)
 
 type BotClient struct {
 	botToken   string
 	httpClient *http.Client
 }
 
+type sendMessageRequest struct {
+	ChatID int64  `json:"chat_id"`
+	Text   string `json:"text"`
+}
+
+type telegramAPIResponse struct {
+	OK          bool   `json:"ok"`
+	ErrorCode   int    `json:"error_code,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
 func NewBotClient(botToken string) *BotClient {
 	return &BotClient{
 		botToken: strings.TrimSpace(botToken),
 		httpClient: &http.Client{
-			Timeout: 15 * time.Second,
+			Timeout: telegramRequestTimeout,
 		},
 	}
 }
@@ -34,21 +49,21 @@ func (c *BotClient) SendMessage(chatID int64, text string) error {
 	if chatID == 0 {
 		return fmt.Errorf("chatID is required")
 	}
-	if strings.TrimSpace(text) == "" {
+
+	trimmedText := strings.TrimSpace(text)
+	if trimmedText == "" {
 		return fmt.Errorf("text is required")
 	}
 
-	payload := map[string]any{
-		"chat_id": chatID,
-		"text":    text,
-	}
-
-	body, err := json.Marshal(payload)
+	body, err := json.Marshal(sendMessageRequest{
+		ChatID: chatID,
+		Text:   trimmedText,
+	})
 	if err != nil {
 		return fmt.Errorf("marshal telegram sendMessage payload: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), telegramRequestTimeout)
 	defer cancel()
 
 	url := fmt.Sprintf("%s/bot%s/sendMessage", telegramAPIBaseURL, c.botToken)
@@ -69,18 +84,24 @@ func (c *BotClient) SendMessage(chatID int64, text string) error {
 		return fmt.Errorf("read telegram sendMessage response: %w", err)
 	}
 
-	if resp.StatusCode >= http.StatusBadRequest {
-		return fmt.Errorf("telegram sendMessage failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	var apiResp telegramAPIResponse
+	if err := json.Unmarshal(respBody, &apiResp); err != nil {
+		preview := strings.TrimSpace(string(respBody))
+		if len(preview) > maxTelegramErrorPreview {
+			preview = preview[:maxTelegramErrorPreview]
+		}
+		return fmt.Errorf("decode telegram sendMessage response: %w (body=%q)", err, preview)
 	}
 
-	var apiResp struct {
-		OK bool `json:"ok"`
-	}
-	if err := json.Unmarshal(respBody, &apiResp); err != nil {
-		return fmt.Errorf("decode telegram sendMessage response: %w", err)
-	}
-	if !apiResp.OK {
-		return fmt.Errorf("telegram sendMessage failed: api returned ok=false")
+	if resp.StatusCode >= http.StatusBadRequest || !apiResp.OK {
+		description := strings.TrimSpace(apiResp.Description)
+		if description == "" {
+			description = "unknown telegram error"
+		}
+		if apiResp.ErrorCode != 0 {
+			return fmt.Errorf("telegram sendMessage failed (%d/%d): %s", resp.StatusCode, apiResp.ErrorCode, description)
+		}
+		return fmt.Errorf("telegram sendMessage failed (%d): %s", resp.StatusCode, description)
 	}
 
 	return nil
