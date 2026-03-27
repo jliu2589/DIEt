@@ -53,6 +53,7 @@ func main() {
 	router := server.NewRouter(server.Dependencies{
 		HealthHandler:   handlers.NewHealthHandler(),
 		MealHandler:     handlers.NewMealHandler(mealSvc),
+		SummaryHandler:  handlers.NewSummaryHandler(repos.DailyNutritionSummary),
 		TelegramHandler: handlers.NewTelegramHandler(cfg.TelegramWebhookSecretPath),
 	})
 

@@ -9,6 +9,7 @@ import (
 type Dependencies struct {
 	HealthHandler   *handlers.HealthHandler
 	MealHandler     *handlers.MealHandler
+	SummaryHandler  *handlers.SummaryHandler
 	TelegramHandler *handlers.TelegramHandler
 }
 
@@ -18,6 +19,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 
 	r.GET("/health", deps.HealthHandler.GetHealth)
 	r.POST("/v1/meals", deps.MealHandler.CreateMeal)
+	r.GET("/v1/daily-summary", deps.SummaryHandler.GetDailySummary)
 
 	api := r.Group("/api/v1")
 	{
