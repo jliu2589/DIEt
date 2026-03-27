@@ -1,15 +1,25 @@
 APP_NAME := diet-api
+MIGRATIONS_DIR := migrations
 
-.PHONY: run tidy fmt test
+.PHONY: run build test fmt tidy migrate-up migrate-down
 
 run:
 	go run ./cmd/api
 
-tidy:
-	go mod tidy
+build:
+	go build -o bin/$(APP_NAME) ./cmd/api
+
+test:
+	go test ./...
 
 fmt:
 	go fmt ./...
 
-test:
-	go test ./...
+tidy:
+	go mod tidy
+
+migrate-up:
+	migrate -path $(MIGRATIONS_DIR) -database "$(DATABASE_URL)" up
+
+migrate-down:
+	migrate -path $(MIGRATIONS_DIR) -database "$(DATABASE_URL)" down 1
