@@ -16,6 +16,7 @@ import (
 	"diet/internal/server"
 	mealservice "diet/internal/services/meal"
 	openaiservice "diet/internal/services/openai"
+	telegramservice "diet/internal/services/telegram"
 )
 
 func main() {
@@ -42,6 +43,7 @@ func main() {
 
 	repos := repositories.New(pool)
 	openAIClient := openaiservice.NewClient(cfg.OpenAIAPIKey, "")
+	telegramBotClient := telegramservice.NewBotClient(cfg.TelegramBotToken)
 	mealSvc := mealservice.NewService(
 		repos.MealEvents,
 		repos.MealAnalysis,
@@ -54,7 +56,7 @@ func main() {
 		HealthHandler:   handlers.NewHealthHandler(),
 		MealHandler:     handlers.NewMealHandler(mealSvc),
 		SummaryHandler:  handlers.NewSummaryHandler(repos.DailyNutritionSummary),
-		TelegramHandler: handlers.NewTelegramHandler(cfg.TelegramWebhookSecretPath),
+		TelegramHandler: handlers.NewTelegramHandler(cfg.TelegramWebhookSecretPath, telegramBotClient),
 	})
 
 	srv := &http.Server{
