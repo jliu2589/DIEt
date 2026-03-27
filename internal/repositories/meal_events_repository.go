@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"diet/internal/models"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -10,6 +11,17 @@ import (
 
 type MealEventsRepository struct {
 	pool *pgxpool.Pool
+}
+
+type RecentMeal struct {
+	MealEventID   int64
+	CanonicalName string
+	EatenAt       time.Time
+	CaloriesKcal  *float64
+	ProteinG      *float64
+	CarbohydrateG *float64
+	FatG          *float64
+	Source        string
 }
 
 func NewMealEventsRepository(pool *pgxpool.Pool) *MealEventsRepository {
@@ -97,4 +109,53 @@ func (r *MealEventsRepository) UpdateProcessingStatus(ctx context.Context, id in
 	}
 
 	return nil
+}
+
+func (r *MealEventsRepository) ListRecentByUserID(ctx context.Context, userID string, limit int) ([]RecentMeal, error) {
+	const q = `
+		SELECT
+			me.id,
+			ma.canonical_name,
+			me.eaten_at,
+			ma.calories_kcal,
+			ma.protein_g,
+			ma.carbohydrate_g,
+			ma.fat_g,
+			me.source
+		FROM meal_events me
+		INNER JOIN meal_analysis ma ON ma.meal_event_id = me.id
+		WHERE me.user_id = $1
+		ORDER BY me.eaten_at DESC, me.id DESC
+		LIMIT $2
+	`
+
+	rows, err := r.pool.Query(ctx, q, userID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list recent meals by user id: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]RecentMeal, 0, limit)
+	for rows.Next() {
+		var item RecentMeal
+		if err := rows.Scan(
+			&item.MealEventID,
+			&item.CanonicalName,
+			&item.EatenAt,
+			&item.CaloriesKcal,
+			&item.ProteinG,
+			&item.CarbohydrateG,
+			&item.FatG,
+			&item.Source,
+		); err != nil {
+			return nil, fmt.Errorf("scan recent meal row: %w", err)
+		}
+		out = append(out, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate recent meal rows: %w", err)
+	}
+
+	return out, nil
 }
