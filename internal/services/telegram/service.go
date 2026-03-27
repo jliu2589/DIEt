@@ -9,44 +9,66 @@ import (
 	mealservice "diet/internal/services/meal"
 )
 
+const telegramSource = "telegram"
+
 type MealProcessor interface {
 	ProcessTextMeal(ctx context.Context, input mealservice.ProcessTextMealInput) (*mealservice.ProcessTextMealResult, error)
 }
 
-type Service struct {
-	mealService MealProcessor
-	botClient   *BotClient
+type MessageSender interface {
+	SendMessage(chatID int64, text string) error
 }
 
-func NewService(mealService MealProcessor, botClient *BotClient) *Service {
+// Service coordinates Telegram updates with the existing meal service.
+// V1 only supports plain text messages.
+type Service struct {
+	mealService MealProcessor
+	botClient   MessageSender
+}
+
+func NewService(mealService MealProcessor, botClient MessageSender) *Service {
 	return &Service{mealService: mealService, botClient: botClient}
 }
 
 func (s *Service) ProcessUpdate(ctx context.Context, update Update) error {
-	if update.Message == nil || update.Message.From == nil {
+	if s == nil || s.mealService == nil || s.botClient == nil {
+		return fmt.Errorf("telegram service dependencies are not configured")
+	}
+
+	message := update.Message
+	if message == nil || message.From == nil {
 		return nil
 	}
 
-	messageText := strings.TrimSpace(update.Message.Text)
+	messageText := strings.TrimSpace(message.Text)
 	if messageText == "" {
-		// V1: only text messages are supported.
+		// V1: ignore unsupported/non-text message types.
 		return nil
 	}
-
-	userID := fmt.Sprintf("telegram:%d", update.Message.From.ID)
-	eatenAt := time.Unix(update.Message.Date, 0).UTC()
 
 	result, err := s.mealService.ProcessTextMeal(ctx, mealservice.ProcessTextMealInput{
-		UserID:  userID,
-		Source:  "telegram",
+		UserID:  fmt.Sprintf("telegram:%d", message.From.ID),
+		Source:  telegramSource,
 		RawText: messageText,
-		EatenAt: eatenAt,
+		EatenAt: time.Unix(message.Date, 0).UTC(),
 	})
 	if err != nil {
 		return fmt.Errorf("process telegram text meal: %w", err)
 	}
 
-	reply := fmt.Sprintf(
+	if err := s.botClient.SendMessage(message.Chat.ID, buildNutritionReply(result)); err != nil {
+		return fmt.Errorf("send telegram reply: %w", err)
+	}
+
+	return nil
+}
+
+func buildNutritionReply(result *mealservice.ProcessTextMealResult) string {
+	if result == nil {
+		return "Meal saved."
+	}
+
+	return fmt.Sprintf(
 		"Meal: %s\nCalories: %.2f kcal\nProtein: %.2f g\nCarbs: %.2f g\nFat: %.2f g",
 		result.CanonicalName,
 		floatOrZero(result.Nutrition.CaloriesKcal),
@@ -54,12 +76,6 @@ func (s *Service) ProcessUpdate(ctx context.Context, update Update) error {
 		floatOrZero(result.Nutrition.CarbohydrateG),
 		floatOrZero(result.Nutrition.FatG),
 	)
-
-	if err := s.botClient.SendMessage(update.Message.Chat.ID, reply); err != nil {
-		return fmt.Errorf("send telegram reply: %w", err)
-	}
-
-	return nil
 }
 
 func floatOrZero(v *float64) float64 {

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -8,14 +9,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const telegramSecretHeader = "X-Telegram-Bot-Api-Secret-Token"
+
+type TelegramUpdateProcessor interface {
+	ProcessUpdate(ctx context.Context, update telegramsvc.Update) error
+}
+
 // TelegramHandler handles Telegram webhook delivery.
 type TelegramHandler struct {
 	secretPath  string
 	secretToken string
-	service     *telegramsvc.Service
+	service     TelegramUpdateProcessor
 }
 
-func NewTelegramHandler(secretPath, secretToken string, service *telegramsvc.Service) *TelegramHandler {
+func NewTelegramHandler(secretPath, secretToken string, service TelegramUpdateProcessor) *TelegramHandler {
 	return &TelegramHandler{
 		secretPath:  strings.TrimSpace(secretPath),
 		secretToken: strings.TrimSpace(secretToken),
@@ -33,7 +40,7 @@ func (h *TelegramHandler) Webhook(c *gin.Context) {
 		return
 	}
 
-	if c.GetHeader("X-Telegram-Bot-Api-Secret-Token") != h.secretToken {
+	if c.GetHeader(telegramSecretHeader) != h.secretToken {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
