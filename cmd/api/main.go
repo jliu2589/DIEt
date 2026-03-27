@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -27,7 +28,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("connect to database: %v", err)
 	}
-	defer pool.Close()
+
+	var closeDB sync.Once
+	closePool := func() {
+		closeDB.Do(func() {
+			pool.Close()
+		})
+	}
+	defer closePool()
 
 	router := server.NewRouter(server.Dependencies{
 		HealthHandler:   handlers.NewHealthHandler(),
@@ -48,6 +56,7 @@ func main() {
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			log.Printf("http server shutdown: %v", err)
 		}
+		closePool()
 	}()
 
 	log.Printf("api listening on :%s", cfg.Port)
