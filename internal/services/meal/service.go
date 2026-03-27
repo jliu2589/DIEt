@@ -24,6 +24,11 @@ type Service struct {
 	mealTextAnalyzer Analyzer
 }
 
+const (
+	defaultRecentMealsLimit = 20
+	maxRecentMealsLimit     = 100
+)
+
 type ProcessTextMealInput struct {
 	UserID          string
 	RawText         string
@@ -41,6 +46,17 @@ type ProcessTextMealResult struct {
 	Items            []models.MealItem      `json:"items,omitempty"`
 	Nutrition        models.NutritionFields `json:"nutrition"`
 	DailySummaryDate string                 `json:"daily_summary_date"`
+}
+
+type RecentMealResult struct {
+	MealEventID   int64     `json:"meal_event_id"`
+	CanonicalName string    `json:"canonical_name"`
+	EatenAt       time.Time `json:"eaten_at"`
+	CaloriesKcal  *float64  `json:"calories_kcal,omitempty"`
+	ProteinG      *float64  `json:"protein_g,omitempty"`
+	CarbohydrateG *float64  `json:"carbohydrate_g,omitempty"`
+	FatG          *float64  `json:"fat_g,omitempty"`
+	Source        string    `json:"source"`
 }
 
 func NewService(
@@ -101,6 +117,40 @@ func (s *Service) ProcessTextMeal(ctx context.Context, input ProcessTextMealInpu
 	}
 
 	return s.processWithOpenAI(ctx, event, fingerprint, input.RawText)
+}
+
+func (s *Service) GetRecentMeals(ctx context.Context, userID string, limit int) ([]RecentMealResult, error) {
+	if strings.TrimSpace(userID) == "" {
+		return nil, fmt.Errorf("user_id is required")
+	}
+
+	switch {
+	case limit <= 0:
+		limit = defaultRecentMealsLimit
+	case limit > maxRecentMealsLimit:
+		limit = maxRecentMealsLimit
+	}
+
+	rows, err := s.mealEventsRepo.ListRecentByUserID(ctx, userID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get recent meals: %w", err)
+	}
+
+	out := make([]RecentMealResult, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, RecentMealResult{
+			MealEventID:   row.MealEventID,
+			CanonicalName: row.CanonicalName,
+			EatenAt:       row.EatenAt,
+			CaloriesKcal:  row.CaloriesKcal,
+			ProteinG:      row.ProteinG,
+			CarbohydrateG: row.CarbohydrateG,
+			FatG:          row.FatG,
+			Source:        row.Source,
+		})
+	}
+
+	return out, nil
 }
 
 func (s *Service) processFromCache(ctx context.Context, event *models.MealEvent, cached *models.MealMemory) (*ProcessTextMealResult, error) {

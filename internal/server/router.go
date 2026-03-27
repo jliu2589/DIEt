@@ -30,6 +30,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 
 	r.GET("/health", deps.HealthHandler.GetHealth)
 	r.POST("/v1/meals", deps.MealHandler.CreateMeal)
+	r.GET("/v1/meals/recent", deps.MealHandler.GetRecentMeals)
 	r.GET("/v1/daily-summary", deps.SummaryHandler.GetDailySummary)
 	if deps.TelegramHandler != nil {
 		deps.TelegramHandler.RegisterRoutes(r)
