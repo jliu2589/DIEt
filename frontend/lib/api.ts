@@ -38,6 +38,16 @@ export type CreateMealResponse = {
   confidence_score?: number;
 };
 
+export type RecentMeal = {
+  id: number;
+  canonical_name: string;
+  eaten_at: string;
+  calories_kcal: number;
+  protein_g: number;
+  carbohydrate_g: number;
+  fat_g: number;
+};
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
 function buildUrl(path: string) {
@@ -69,6 +79,22 @@ export async function createMeal(payload: CreateMealRequest): Promise<CreateMeal
 
   if (!response.ok) {
     throw new Error(`Failed to create meal (${response.status})`);
+  }
+
+  return response.json();
+}
+
+export async function getRecentMeals(userId: string, limit = 20): Promise<RecentMeal[]> {
+  const params = new URLSearchParams({ user_id: userId, limit: String(limit) });
+  const response = await fetch(buildUrl(`/v1/meals/recent?${params.toString()}`), {
+    cache: "no-store"
+  });
+
+  if (response.status === 404) {
+    throw new Error("RECENT_MEALS_ENDPOINT_NOT_IMPLEMENTED");
+  }
+  if (!response.ok) {
+    throw new Error(`Failed to fetch recent meals (${response.status})`);
   }
 
   return response.json();

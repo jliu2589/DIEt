@@ -1,72 +1,96 @@
 "use client";
 
-import { useState } from "react";
-import { getDailySummary, type DailySummaryResponse } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { getRecentMeals, type RecentMeal } from "@/lib/api";
 
-function isoDate(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
+const USER_ID = "demo-user";
 
 export default function HistoryPage() {
-  const [userId, setUserId] = useState("demo-user");
-  const [date, setDate] = useState(isoDate(new Date()));
-  const [result, setResult] = useState<DailySummaryResponse | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [meals, setMeals] = useState<RecentMeal[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [endpointMissing, setEndpointMissing] = useState(false);
 
-  async function onLoad() {
-    setLoading(true);
-    setError(null);
-    try {
-      const summary = await getDailySummary(userId, date);
-      setResult(summary);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load summary");
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await getRecentMeals(USER_ID, 20);
+        setMeals(data);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Failed to load recent meals";
+        if (msg === "RECENT_MEALS_ENDPOINT_NOT_IMPLEMENTED") {
+          setEndpointMissing(true);
+        } else {
+          setError(msg);
+        }
+      } finally {
+        setLoading(false);
+      }
     }
-  }
+
+    void load();
+  }, []);
 
   return (
-    <main className="space-y-6">
+    <main className="space-y-4">
       <section className="rounded-xl bg-white p-4 shadow-sm">
-        <h2 className="mb-3 text-base font-semibold">Meal History (Daily)</h2>
-        <p className="mb-4 text-sm text-slate-600">
-          V1 shows daily totals by date. Detailed meal event history can be added later.
-        </p>
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="text-sm">
-            <span className="mb-1 block text-slate-600">User ID</span>
-            <input
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-              className="rounded-md border border-slate-300 px-3 py-2"
-            />
-          </label>
-          <label className="text-sm">
-            <span className="mb-1 block text-slate-600">Date</span>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="rounded-md border border-slate-300 px-3 py-2"
-            />
-          </label>
-          <button onClick={onLoad} className="rounded-md bg-slate-900 px-4 py-2 text-sm text-white">
-            {loading ? "Loading..." : "Load"}
-          </button>
-        </div>
+        <h2 className="text-base font-semibold">Meal History</h2>
+        <p className="mt-1 text-sm text-slate-600">Recent meals for user: {USER_ID}</p>
       </section>
 
-      {result && (
-        <section className="rounded-xl bg-white p-4 shadow-sm">
-          <h3 className="mb-3 text-base font-semibold">{result.date} Totals</h3>
-          <ul className="space-y-1 text-sm">
-            <li>Calories: {result.calories_kcal} kcal</li>
-            <li>Protein: {result.protein_g} g</li>
-            <li>Carbohydrate: {result.carbohydrate_g} g</li>
-            <li>Fat: {result.fat_g} g</li>
-          </ul>
+      {endpointMissing && (
+        <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          Recent meals endpoint is not yet available on the backend.
+          <br />
+          Expected endpoint: <code>GET /v1/meals/recent?user_id=&lt;id&gt;&amp;limit=20</code>
+        </section>
+      )}
+
+      {!endpointMissing && (
+        <section className="overflow-hidden rounded-xl bg-white shadow-sm">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-100 text-left text-slate-700">
+              <tr>
+                <th className="px-4 py-3 font-medium">Meal</th>
+                <th className="px-4 py-3 font-medium">Timestamp</th>
+                <th className="px-4 py-3 font-medium">Calories</th>
+                <th className="px-4 py-3 font-medium">Protein</th>
+                <th className="px-4 py-3 font-medium">Carbs</th>
+                <th className="px-4 py-3 font-medium">Fat</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading && (
+                <tr>
+                  <td className="px-4 py-4 text-slate-500" colSpan={6}>
+                    Loading...
+                  </td>
+                </tr>
+              )}
+
+              {!loading && meals.length === 0 && (
+                <tr>
+                  <td className="px-4 py-4 text-slate-500" colSpan={6}>
+                    No meals found.
+                  </td>
+                </tr>
+              )}
+
+              {!loading &&
+                meals.map((meal) => (
+                  <tr key={meal.id} className="border-t border-slate-100">
+                    <td className="px-4 py-3">{meal.canonical_name}</td>
+                    <td className="px-4 py-3">{new Date(meal.eaten_at).toLocaleString()}</td>
+                    <td className="px-4 py-3">{meal.calories_kcal}</td>
+                    <td className="px-4 py-3">{meal.protein_g} g</td>
+                    <td className="px-4 py-3">{meal.carbohydrate_g} g</td>
+                    <td className="px-4 py-3">{meal.fat_g} g</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
         </section>
       )}
 
