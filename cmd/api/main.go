@@ -12,7 +12,10 @@ import (
 	"diet/internal/config"
 	"diet/internal/db"
 	"diet/internal/handlers"
+	"diet/internal/repositories"
 	"diet/internal/server"
+	mealservice "diet/internal/services/meal"
+	openaiservice "diet/internal/services/openai"
 )
 
 func main() {
@@ -37,8 +40,19 @@ func main() {
 	}
 	defer closePool()
 
+	repos := repositories.New(pool)
+	openAIClient := openaiservice.NewClient(cfg.OpenAIAPIKey, "")
+	mealSvc := mealservice.NewService(
+		repos.MealEvents,
+		repos.MealAnalysis,
+		repos.MealMemory,
+		repos.DailyNutritionSummary,
+		openAIClient,
+	)
+
 	router := server.NewRouter(server.Dependencies{
 		HealthHandler:   handlers.NewHealthHandler(),
+		MealHandler:     handlers.NewMealHandler(mealSvc),
 		TelegramHandler: handlers.NewTelegramHandler(cfg.TelegramWebhookSecretPath),
 	})
 
