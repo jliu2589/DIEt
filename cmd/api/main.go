@@ -51,12 +51,17 @@ func main() {
 		repos.DailyNutritionSummary,
 		openAIClient,
 	)
+	telegramSvc := telegramservice.NewService(mealSvc, telegramBotClient)
 
 	router := server.NewRouter(server.Dependencies{
-		HealthHandler:   handlers.NewHealthHandler(),
-		MealHandler:     handlers.NewMealHandler(mealSvc),
-		SummaryHandler:  handlers.NewSummaryHandler(repos.DailyNutritionSummary),
-		TelegramHandler: handlers.NewTelegramHandler(cfg.TelegramWebhookSecretPath, telegramBotClient),
+		HealthHandler:  handlers.NewHealthHandler(),
+		MealHandler:    handlers.NewMealHandler(mealSvc),
+		SummaryHandler: handlers.NewSummaryHandler(repos.DailyNutritionSummary),
+		TelegramHandler: handlers.NewTelegramHandler(
+			cfg.TelegramWebhookSecretPath,
+			cfg.TelegramWebhookSecretToken,
+			telegramSvc,
+		),
 	})
 
 	srv := &http.Server{
