@@ -55,6 +55,8 @@ Server starts on `:$PORT`.
 - `GET /health`
 - `POST /v1/meals`
 - `GET /v1/daily-summary?user_id=<id>&date=YYYY-MM-DD`
+- `GET /v1/user-settings?user_id=<id>`
+- `PUT /v1/user-settings`
 - `POST /v1/integrations/telegram/webhook/:secretPath`
 
 ## Example: `POST /v1/meals`

@@ -14,6 +14,7 @@ type Dependencies struct {
 	MealHandler     *handlers.MealHandler
 	SummaryHandler  *handlers.SummaryHandler
 	TelegramHandler *handlers.TelegramHandler
+	UserSettings    *handlers.UserSettingsHandler
 }
 
 func NewRouter(deps Dependencies) *gin.Engine {
@@ -32,6 +33,8 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	r.POST("/v1/meals", deps.MealHandler.CreateMeal)
 	r.GET("/v1/meals/recent", deps.MealHandler.GetRecentMeals)
 	r.GET("/v1/daily-summary", deps.SummaryHandler.GetDailySummary)
+	r.GET("/v1/user-settings", deps.UserSettings.GetUserSettings)
+	r.PUT("/v1/user-settings", deps.UserSettings.UpsertUserSettings)
 	if deps.TelegramHandler != nil {
 		deps.TelegramHandler.RegisterRoutes(r)
 	}
