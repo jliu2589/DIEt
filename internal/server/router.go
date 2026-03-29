@@ -35,6 +35,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	r.GET("/health", deps.HealthHandler.GetHealth)
 	r.POST("/v1/meals", deps.MealHandler.CreateMeal)
 	r.GET("/v1/meals/recent", deps.MealHandler.GetRecentMeals)
+	r.PATCH("/v1/meals/:mealEventID/time", deps.MealHandler.EditMealTime)
 	r.GET("/v1/daily-summary", deps.SummaryHandler.GetDailySummary)
 	r.GET("/v1/settings", deps.UserSettings.GetUserSettings)
 	r.PUT("/v1/settings", deps.UserSettings.UpsertUserSettings)

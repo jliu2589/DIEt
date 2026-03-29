@@ -70,6 +70,13 @@ type RecentMealResult struct {
 	Source        string    `json:"source"`
 }
 
+type EditMealTimeResult struct {
+	MealEventID   int64     `json:"meal_event_id"`
+	CanonicalName string    `json:"canonical_name"`
+	EatenAt       time.Time `json:"eaten_at"`
+	TimeSource    string    `json:"time_source"`
+}
+
 func NewService(
 	mealEventsRepo *repositories.MealEventsRepository,
 	mealAnalysisRepo *repositories.MealAnalysisRepository,
@@ -185,6 +192,34 @@ func (s *Service) GetRecentMeals(ctx context.Context, userID string, limit int) 
 	}
 
 	return out, nil
+}
+
+func (s *Service) EditMealTime(ctx context.Context, mealEventID int64, userID string, eatenAt time.Time) (*EditMealTimeResult, error) {
+	if mealEventID <= 0 {
+		return nil, fmt.Errorf("meal_event_id must be greater than 0")
+	}
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, fmt.Errorf("user_id is required")
+	}
+	if eatenAt.IsZero() {
+		return nil, fmt.Errorf("eaten_at is required")
+	}
+
+	updated, err := s.mealEventsRepo.UpdateEatenAtByIDAndUserID(ctx, mealEventID, userID, eatenAt.UTC())
+	if err != nil {
+		return nil, fmt.Errorf("edit meal time: %w", err)
+	}
+	if updated == nil {
+		return nil, nil
+	}
+
+	return &EditMealTimeResult{
+		MealEventID:   updated.MealEventID,
+		CanonicalName: updated.CanonicalName,
+		EatenAt:       updated.EatenAt,
+		TimeSource:    updated.TimeSource,
+	}, nil
 }
 
 func (s *Service) processFromCache(ctx context.Context, event *models.MealEvent, cached *models.MealMemory) (*ProcessTextMealResult, error) {

@@ -49,6 +49,18 @@ type mealResponseItem struct {
 	FatG            *float64 `json:"fat_g"`
 }
 
+type editMealTimeRequest struct {
+	UserID  string    `json:"user_id" binding:"required"`
+	EatenAt time.Time `json:"eaten_at" binding:"required"`
+}
+
+type editMealTimeResponse struct {
+	MealEventID   int64  `json:"meal_event_id"`
+	CanonicalName string `json:"canonical_name"`
+	EatenAt       string `json:"eaten_at"`
+	TimeSource    string `json:"time_source"`
+}
+
 func (h *MealHandler) CreateMeal(c *gin.Context) {
 	var req createMealRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -110,6 +122,47 @@ func (h *MealHandler) GetRecentMeals(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, recentMealsResponse{Items: respItems})
+}
+
+func (h *MealHandler) EditMealTime(c *gin.Context) {
+	mealEventID, err := strconv.ParseInt(strings.TrimSpace(c.Param("mealEventID")), 10, 64)
+	if err != nil || mealEventID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "mealEventID must be a positive integer"})
+		return
+	}
+
+	var req editMealTimeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	userID, ok := normalizeRequiredUserID(req.UserID)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id is required"})
+		return
+	}
+
+	updated, err := h.service.EditMealTime(c.Request.Context(), mealEventID, userID, req.EatenAt)
+	if err != nil {
+		if strings.Contains(err.Error(), "is required") || strings.Contains(err.Error(), "must be greater than 0") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to edit meal time"})
+		return
+	}
+	if updated == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "meal event not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, editMealTimeResponse{
+		MealEventID:   updated.MealEventID,
+		CanonicalName: updated.CanonicalName,
+		EatenAt:       updated.EatenAt.UTC().Format(time.RFC3339),
+		TimeSource:    updated.TimeSource,
+	})
 }
 
 func parseLimitQuery(limitRaw string) (int, error) {

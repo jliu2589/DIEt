@@ -2,10 +2,12 @@ package repositories
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"diet/internal/models"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -22,6 +24,13 @@ type RecentMeal struct {
 	CarbohydrateG *float64
 	FatG          *float64
 	Source        string
+}
+
+type MealTimeUpdate struct {
+	MealEventID   int64
+	CanonicalName string
+	EatenAt       time.Time
+	TimeSource    string
 }
 
 func NewMealEventsRepository(pool *pgxpool.Pool) *MealEventsRepository {
@@ -164,4 +173,37 @@ func (r *MealEventsRepository) ListRecentByUserID(ctx context.Context, userID st
 	}
 
 	return out, nil
+}
+
+func (r *MealEventsRepository) UpdateEatenAtByIDAndUserID(ctx context.Context, mealEventID int64, userID string, eatenAt time.Time) (*MealTimeUpdate, error) {
+	const q = `
+		UPDATE meal_events me
+		SET eaten_at = $3, time_source = 'edited', updated_at = NOW()
+		WHERE me.id = $1 AND me.user_id = $2
+		RETURNING
+			me.id,
+			COALESCE((
+				SELECT ma.canonical_name
+				FROM meal_analysis ma
+				WHERE ma.meal_event_id = me.id
+				LIMIT 1
+			), ''),
+			me.eaten_at,
+			me.time_source
+	`
+
+	var out MealTimeUpdate
+	if err := r.pool.QueryRow(ctx, q, mealEventID, userID, eatenAt).Scan(
+		&out.MealEventID,
+		&out.CanonicalName,
+		&out.EatenAt,
+		&out.TimeSource,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("update meal_event eaten_at by id and user_id: %w", err)
+	}
+
+	return &out, nil
 }
