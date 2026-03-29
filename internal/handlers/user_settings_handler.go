@@ -23,7 +23,7 @@ type upsertUserSettingsRequest struct {
 	WeightGoalKG *float64 `json:"weight_goal_kg"`
 	CalorieGoal  *float64 `json:"calorie_goal"`
 	ProteinGoalG *float64 `json:"protein_goal_g"`
-	WeightUnit   string   `json:"weight_unit"`
+	WeightUnit   string   `json:"weight_unit" binding:"omitempty,oneof=kg lb"`
 }
 
 type userSettingsResponse struct {
@@ -45,6 +45,10 @@ func (h *UserSettingsHandler) GetUserSettings(c *gin.Context) {
 
 	settings, err := h.service.GetByUserID(c.Request.Context(), userID)
 	if err != nil {
+		if isValidationError(err) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch user settings"})
 		return
 	}
@@ -79,11 +83,24 @@ func (h *UserSettingsHandler) UpsertUserSettings(c *gin.Context) {
 		WeightUnit:   req.WeightUnit,
 	})
 	if err != nil {
+		if isValidationError(err) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save user settings"})
 		return
 	}
 
 	c.JSON(http.StatusOK, toUserSettingsResponse(settings.UserID, settings.Name, settings.HeightCM, settings.WeightGoalKG, settings.CalorieGoal, settings.ProteinGoalG, settings.WeightUnit))
+}
+
+func isValidationError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	return strings.Contains(err.Error(), "is required") ||
+		strings.Contains(err.Error(), "weight_unit must be one of")
 }
 
 func toUserSettingsResponse(

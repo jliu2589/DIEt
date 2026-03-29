@@ -46,6 +46,10 @@ func (s *Service) Upsert(ctx context.Context, input UpsertInput) (*models.UserSe
 	if weightUnit == "" {
 		weightUnit = "kg"
 	}
+	weightUnit = strings.ToLower(weightUnit)
+	if weightUnit != "kg" && weightUnit != "lb" {
+		return nil, fmt.Errorf("weight_unit must be one of: kg, lb")
+	}
 
 	payload := models.UserSettings{
 		UserID:       userID,
