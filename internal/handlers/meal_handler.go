@@ -23,7 +23,7 @@ type createMealRequest struct {
 	UserID  string    `json:"user_id" binding:"required"`
 	Source  string    `json:"source" binding:"required"`
 	RawText string    `json:"raw_text" binding:"required"`
-	EatenAt time.Time `json:"eaten_at" binding:"required"`
+	EatenAt time.Time `json:"eaten_at"`
 }
 
 type createMealResponse struct {

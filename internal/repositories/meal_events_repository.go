@@ -31,9 +31,9 @@ func NewMealEventsRepository(pool *pgxpool.Pool) *MealEventsRepository {
 func (r *MealEventsRepository) Insert(ctx context.Context, event models.MealEvent) (*models.MealEvent, error) {
 	const q = `
 		INSERT INTO meal_events (
-			user_id, source, source_message_id, event_type, raw_text, image_url, eaten_at, processing_status, fingerprint_hash
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-		RETURNING id, user_id, source, source_message_id, event_type, raw_text, image_url, eaten_at, processing_status, fingerprint_hash, created_at, updated_at
+			user_id, source, source_message_id, event_type, raw_text, image_url, logged_at, eaten_at, time_source, processing_status, fingerprint_hash
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		RETURNING id, user_id, source, source_message_id, event_type, raw_text, image_url, logged_at, eaten_at, time_source, processing_status, fingerprint_hash, created_at, updated_at
 	`
 
 	var out models.MealEvent
@@ -46,7 +46,9 @@ func (r *MealEventsRepository) Insert(ctx context.Context, event models.MealEven
 		event.EventType,
 		event.RawText,
 		event.ImageURL,
+		event.LoggedAt,
 		event.EatenAt,
+		event.TimeSource,
 		event.ProcessingStatus,
 		event.FingerprintHash,
 	).Scan(
@@ -57,7 +59,9 @@ func (r *MealEventsRepository) Insert(ctx context.Context, event models.MealEven
 		&out.EventType,
 		&out.RawText,
 		&out.ImageURL,
+		&out.LoggedAt,
 		&out.EatenAt,
+		&out.TimeSource,
 		&out.ProcessingStatus,
 		&out.FingerprintHash,
 		&out.CreatedAt,
@@ -71,7 +75,7 @@ func (r *MealEventsRepository) Insert(ctx context.Context, event models.MealEven
 
 func (r *MealEventsRepository) GetByID(ctx context.Context, id int64) (*models.MealEvent, error) {
 	const q = `
-		SELECT id, user_id, source, source_message_id, event_type, raw_text, image_url, eaten_at, processing_status, fingerprint_hash, created_at, updated_at
+		SELECT id, user_id, source, source_message_id, event_type, raw_text, image_url, logged_at, eaten_at, time_source, processing_status, fingerprint_hash, created_at, updated_at
 		FROM meal_events
 		WHERE id = $1
 	`
@@ -85,7 +89,9 @@ func (r *MealEventsRepository) GetByID(ctx context.Context, id int64) (*models.M
 		&out.EventType,
 		&out.RawText,
 		&out.ImageURL,
+		&out.LoggedAt,
 		&out.EatenAt,
+		&out.TimeSource,
 		&out.ProcessingStatus,
 		&out.FingerprintHash,
 		&out.CreatedAt,

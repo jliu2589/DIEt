@@ -108,8 +108,10 @@ func (s *Service) ProcessTextMeal(ctx context.Context, input ProcessTextMealInpu
 	}
 
 	eatenAt := input.EatenAt
+	timeSource := "explicit"
 	if eatenAt.IsZero() {
 		eatenAt = time.Now().UTC()
+		timeSource = "default_now"
 	}
 	eatenAt = eatenAt.UTC()
 	if strings.TrimSpace(input.Source) == "" {
@@ -123,7 +125,9 @@ func (s *Service) ProcessTextMeal(ctx context.Context, input ProcessTextMealInpu
 		SourceMessageID:  input.SourceMessageID,
 		EventType:        "text",
 		RawText:          &rawText,
+		LoggedAt:         time.Now().UTC(),
 		EatenAt:          eatenAt,
+		TimeSource:       timeSource,
 		ProcessingStatus: "pending",
 	})
 	if err != nil {
