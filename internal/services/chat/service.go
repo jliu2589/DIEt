@@ -32,6 +32,8 @@ type Service struct {
 	weightService WeightLogger
 }
 
+const nonDietHelpMessage = "I can help log meals, log weight, and suggest meals to hit your goals."
+
 type Request struct {
 	UserID   string
 	Message  string
@@ -137,9 +139,9 @@ func (s *Service) HandleMessage(ctx context.Context, req Request) (*Response, er
 			},
 		}, nil
 	case inputclassifier.IntentGeneralChat:
-		return &Response{Intent: intent, MessageToUser: "Hey! I can log meals, track weight, and suggest meals."}, nil
+		return &Response{Intent: intent, MessageToUser: nonDietHelpMessage}, nil
 	default:
-		return &Response{Intent: inputclassifier.IntentUnknown, MessageToUser: "I couldn’t confidently route that input yet."}, nil
+		return &Response{Intent: inputclassifier.IntentUnknown, MessageToUser: nonDietHelpMessage}, nil
 	}
 }
 
