@@ -9,6 +9,7 @@ import (
 
 	"diet/internal/models"
 	"diet/internal/repositories"
+	canonicalfoodssvc "diet/internal/services/canonical_foods"
 	inputclassifier "diet/internal/services/input_classifier"
 	openaisvc "diet/internal/services/openai"
 )
@@ -22,12 +23,15 @@ type InputClassifier interface {
 }
 
 type Service struct {
-	mealEventsRepo   *repositories.MealEventsRepository
-	mealAnalysisRepo *repositories.MealAnalysisRepository
-	mealMemoryRepo   *repositories.MealMemoryRepository
-	dailySummaryRepo *repositories.DailyNutritionSummaryRepository
-	mealTextAnalyzer Analyzer
-	classifier       InputClassifier
+	mealEventsRepo     *repositories.MealEventsRepository
+	mealAnalysisRepo   *repositories.MealAnalysisRepository
+	mealMemoryRepo     *repositories.MealMemoryRepository
+	dailySummaryRepo   *repositories.DailyNutritionSummaryRepository
+	mealsRepo          *repositories.MealsRepository
+	mealItemsRepo      *repositories.MealItemsRepository
+	canonicalFoodsRepo *repositories.CanonicalFoodsRepository
+	mealTextAnalyzer   Analyzer
+	classifier         InputClassifier
 }
 
 const (
@@ -82,16 +86,22 @@ func NewService(
 	mealAnalysisRepo *repositories.MealAnalysisRepository,
 	mealMemoryRepo *repositories.MealMemoryRepository,
 	dailySummaryRepo *repositories.DailyNutritionSummaryRepository,
+	mealsRepo *repositories.MealsRepository,
+	mealItemsRepo *repositories.MealItemsRepository,
+	canonicalFoodsRepo *repositories.CanonicalFoodsRepository,
 	mealTextAnalyzer Analyzer,
 	classifier InputClassifier,
 ) *Service {
 	return &Service{
-		mealEventsRepo:   mealEventsRepo,
-		mealAnalysisRepo: mealAnalysisRepo,
-		mealMemoryRepo:   mealMemoryRepo,
-		dailySummaryRepo: dailySummaryRepo,
-		mealTextAnalyzer: mealTextAnalyzer,
-		classifier:       classifier,
+		mealEventsRepo:     mealEventsRepo,
+		mealAnalysisRepo:   mealAnalysisRepo,
+		mealMemoryRepo:     mealMemoryRepo,
+		dailySummaryRepo:   dailySummaryRepo,
+		mealsRepo:          mealsRepo,
+		mealItemsRepo:      mealItemsRepo,
+		canonicalFoodsRepo: canonicalFoodsRepo,
+		mealTextAnalyzer:   mealTextAnalyzer,
+		classifier:         classifier,
 	}
 }
 
@@ -155,6 +165,12 @@ func (s *Service) ProcessTextMeal(ctx context.Context, input ProcessTextMealInpu
 
 	if cached != nil {
 		return s.processFromCache(ctx, event, cached)
+	}
+
+	if reusableResult, err := s.processFromReusableMeal(ctx, event, fingerprint); err != nil {
+		return nil, err
+	} else if reusableResult != nil {
+		return reusableResult, nil
 	}
 
 	return s.processWithOpenAI(ctx, event, fingerprint, input.RawText)
@@ -316,6 +332,10 @@ func (s *Service) processWithOpenAI(ctx context.Context, event *models.MealEvent
 		return nil, fmt.Errorf("upsert meal_memory: %w", err)
 	}
 
+	if err := s.maybeSaveReusableMealTemplate(ctx, fingerprint, openAIResult.CanonicalName, openAIResult.ConfidenceScore, items); err != nil {
+		return nil, fmt.Errorf("save reusable meal template: %w", err)
+	}
+
 	if err := s.mealEventsRepo.UpdateProcessingStatus(ctx, event.ID, "processed"); err != nil {
 		return nil, fmt.Errorf("mark meal_event processed: %w", err)
 	}
@@ -340,6 +360,181 @@ func (s *Service) processWithOpenAI(ctx context.Context, event *models.MealEvent
 		Nutrition:        nutrition,
 		DailySummaryDate: summaryDate.Format("2006-01-02"),
 	}, nil
+}
+
+func (s *Service) processFromReusableMeal(ctx context.Context, event *models.MealEvent, fingerprint string) (*ProcessTextMealResult, error) {
+	if s.mealsRepo == nil || s.mealItemsRepo == nil || s.canonicalFoodsRepo == nil {
+		return nil, nil
+	}
+
+	reusableMeal, err := s.mealsRepo.GetByFingerprintHash(ctx, fingerprint)
+	if err != nil {
+		return nil, fmt.Errorf("lookup reusable meal by fingerprint: %w", err)
+	}
+	if reusableMeal == nil {
+		return nil, nil
+	}
+
+	storedItems, err := s.mealItemsRepo.ListByMealID(ctx, reusableMeal.ID)
+	if err != nil {
+		return nil, fmt.Errorf("list reusable meal items: %w", err)
+	}
+
+	var total models.NutritionFields
+	analysisItems := make([]models.MealItem, 0, len(storedItems))
+	for _, item := range storedItems {
+		food, err := s.canonicalFoodsRepo.GetByID(ctx, item.FoodID)
+		if err != nil {
+			return nil, fmt.Errorf("get canonical food for reusable meal item: %w", err)
+		}
+		if food == nil {
+			continue
+		}
+
+		scaled, err := canonicalfoodssvc.ScaleNutrition(*food, item.Quantity, item.Unit)
+		if err != nil {
+			return nil, fmt.Errorf("scale nutrition for reusable meal item: %w", err)
+		}
+
+		total = mergeNutrition(total, scaled.Nutrition)
+		analysisItems = append(analysisItems, models.MealItem{
+			Name:          food.CanonicalName,
+			Quantity:      &item.Quantity,
+			Unit:          item.Unit,
+			CaloriesKcal:  scaled.Nutrition.CaloriesKcal,
+			ProteinG:      scaled.Nutrition.ProteinG,
+			CarbohydrateG: scaled.Nutrition.CarbohydrateG,
+			FatG:          scaled.Nutrition.FatG,
+		})
+	}
+
+	itemsJSON, _ := json.Marshal(analysisItems)
+	analysis := models.MealAnalysis{
+		MealEventID:     event.ID,
+		UserID:          event.UserID,
+		CanonicalName:   reusableMeal.CanonicalName,
+		ConfidenceScore: reusableMeal.ConfidenceScore,
+		ItemsJSON:       itemsJSON,
+		NutritionFields: total,
+	}
+
+	if err := s.mealAnalysisRepo.Insert(ctx, analysis); err != nil {
+		return nil, fmt.Errorf("insert meal_analysis from reusable meal: %w", err)
+	}
+
+	if _, err := s.mealMemoryRepo.Upsert(ctx, models.MealMemory{
+		FingerprintHash: fingerprint,
+		CanonicalName:   reusableMeal.CanonicalName,
+		ConfidenceScore: reusableMeal.ConfidenceScore,
+		ItemsJSON:       itemsJSON,
+		NutritionFields: total,
+	}); err != nil {
+		return nil, fmt.Errorf("upsert meal_memory from reusable meal: %w", err)
+	}
+
+	if err := s.mealEventsRepo.UpdateProcessingStatus(ctx, event.ID, "processed"); err != nil {
+		return nil, fmt.Errorf("mark meal_event processed: %w", err)
+	}
+
+	summaryDate := dateOnly(event.EatenAt)
+	if _, err := s.updateDailySummary(ctx, event.UserID, summaryDate, total); err != nil {
+		return nil, err
+	}
+
+	return &ProcessTextMealResult{
+		Intent:           inputclassifier.IntentMealLog,
+		Logged:           true,
+		Message:          "Logged your meal.",
+		MealEventID:      event.ID,
+		Source:           event.Source,
+		ProcessedFrom:    "reusable_meal",
+		EatenAt:          event.EatenAt,
+		CanonicalName:    reusableMeal.CanonicalName,
+		ConfidenceScore:  reusableMeal.ConfidenceScore,
+		Items:            analysisItems,
+		Nutrition:        total,
+		DailySummaryDate: summaryDate.Format("2006-01-02"),
+	}, nil
+}
+
+func (s *Service) maybeSaveReusableMealTemplate(ctx context.Context, fingerprint string, canonicalName string, confidenceScore *float64, items []models.MealItem) error {
+	if s.mealsRepo == nil || s.mealItemsRepo == nil || s.canonicalFoodsRepo == nil {
+		return nil
+	}
+
+	if existing, err := s.mealsRepo.GetByFingerprintHash(ctx, fingerprint); err != nil {
+		return fmt.Errorf("lookup reusable meal by fingerprint before save: %w", err)
+	} else if existing != nil {
+		return nil
+	}
+
+	resolvedItems, err := s.resolveStoredMealItems(ctx, items)
+	if err != nil {
+		return fmt.Errorf("resolve stored meal items: %w", err)
+	}
+	if len(resolvedItems) == 0 {
+		return nil
+	}
+
+	structureHash := FingerprintFromCanonicalStructure(canonicalName, items)
+	if structureHash == "" {
+		return nil
+	}
+
+	if existing, err := s.mealsRepo.GetByFingerprintHash(ctx, structureHash); err != nil {
+		return fmt.Errorf("lookup reusable meal by structure fingerprint: %w", err)
+	} else if existing != nil {
+		return nil
+	}
+
+	sourceType := "canonical_structure"
+	mealRow, err := s.mealsRepo.Create(ctx, models.Meal{
+		CanonicalName:   canonicalName,
+		FingerprintHash: &structureHash,
+		SourceType:      &sourceType,
+		ConfidenceScore: confidenceScore,
+	})
+	if err != nil {
+		return fmt.Errorf("create reusable meal template: %w", err)
+	}
+
+	for _, it := range resolvedItems {
+		if _, err := s.mealItemsRepo.Create(ctx, models.StoredMealItem{
+			MealID:   mealRow.ID,
+			FoodID:   it.FoodID,
+			Quantity: it.Quantity,
+			Unit:     it.Unit,
+		}); err != nil {
+			return fmt.Errorf("create reusable meal item: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (s *Service) resolveStoredMealItems(ctx context.Context, items []models.MealItem) ([]models.StoredMealItem, error) {
+	if len(items) == 0 {
+		return nil, nil
+	}
+	out := make([]models.StoredMealItem, 0, len(items))
+	for _, it := range items {
+		if strings.TrimSpace(it.Name) == "" || it.Quantity == nil || strings.TrimSpace(it.Unit) == "" {
+			continue
+		}
+		food, err := s.canonicalFoodsRepo.GetByCanonicalName(ctx, it.Name)
+		if err != nil {
+			return nil, fmt.Errorf("resolve food by canonical name: %w", err)
+		}
+		if food == nil {
+			continue
+		}
+		out = append(out, models.StoredMealItem{
+			FoodID:   food.ID,
+			Quantity: *it.Quantity,
+			Unit:     strings.TrimSpace(it.Unit),
+		})
+	}
+	return out, nil
 }
 
 func nonMealIntentMessage(intent string) string {

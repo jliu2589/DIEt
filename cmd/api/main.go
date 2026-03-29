@@ -63,6 +63,9 @@ func main() {
 		repos.MealAnalysis,
 		repos.MealMemory,
 		repos.DailyNutritionSummary,
+		repos.Meals,
+		repos.MealItems,
+		repos.CanonicalFoods,
 		openAIClient,
 		classifierSvc,
 	)
