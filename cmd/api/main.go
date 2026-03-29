@@ -18,6 +18,7 @@ import (
 	openaiservice "diet/internal/services/openai"
 	telegramservice "diet/internal/services/telegram"
 	usersettingsservice "diet/internal/services/user_settings"
+	weightservice "diet/internal/services/weight"
 )
 
 func main() {
@@ -68,12 +69,16 @@ func main() {
 	// 8) Telegram service
 	telegramSvc := telegramservice.NewService(mealSvc, telegramBotClient)
 
-	// 9) Handlers + 10) Gin router
+	// 9) Weight service
+	weightSvc := weightservice.NewService(repos.WeightEntries)
+
+	// 10) Handlers + 11) Gin router
 	router := server.NewRouter(server.Dependencies{
 		HealthHandler:  handlers.NewHealthHandler(),
 		MealHandler:    handlers.NewMealHandler(mealSvc),
 		SummaryHandler: handlers.NewSummaryHandler(repos.DailyNutritionSummary),
 		UserSettings:   handlers.NewUserSettingsHandler(userSettingsSvc),
+		WeightHandler:  handlers.NewWeightHandler(weightSvc),
 		TelegramHandler: handlers.NewTelegramHandler(
 			cfg.TelegramWebhookSecretPath,
 			cfg.TelegramWebhookSecretToken,
@@ -81,7 +86,7 @@ func main() {
 		),
 	})
 
-	// 11) HTTP server
+	// 12) HTTP server
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           router,
