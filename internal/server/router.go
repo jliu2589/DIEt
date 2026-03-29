@@ -17,6 +17,7 @@ type Dependencies struct {
 	UserSettings    *handlers.UserSettingsHandler
 	WeightHandler   *handlers.WeightHandler
 	TrendsHandler   *handlers.TrendsHandler
+	MeHandler       *handlers.MeHandler
 }
 
 func NewRouter(deps Dependencies) *gin.Engine {
@@ -41,6 +42,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	r.GET("/v1/weight/latest", deps.WeightHandler.GetLatestWeightEntry)
 	r.GET("/v1/weight/recent", deps.WeightHandler.GetRecentWeightEntries)
 	r.GET("/v1/trends", deps.TrendsHandler.GetTrends)
+	r.GET("/v1/me", deps.MeHandler.GetMe)
 	if deps.TelegramHandler != nil {
 		deps.TelegramHandler.RegisterRoutes(r)
 	}
