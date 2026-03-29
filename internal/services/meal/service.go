@@ -40,6 +40,8 @@ type ProcessTextMealInput struct {
 type ProcessTextMealResult struct {
 	MealEventID      int64                  `json:"meal_event_id"`
 	Source           string                 `json:"source"`
+	ProcessedFrom    string                 `json:"processed_from"`
+	EatenAt          time.Time              `json:"eaten_at"`
 	CanonicalName    string                 `json:"canonical_name"`
 	ConfidenceScore  *float64               `json:"confidence_score,omitempty"`
 	Assumptions      []string               `json:"assumptions,omitempty"`
@@ -179,7 +181,9 @@ func (s *Service) processFromCache(ctx context.Context, event *models.MealEvent,
 
 	result := &ProcessTextMealResult{
 		MealEventID:      event.ID,
-		Source:           "cache",
+		Source:           event.Source,
+		ProcessedFrom:    "cache",
+		EatenAt:          event.EatenAt,
 		CanonicalName:    cached.CanonicalName,
 		ConfidenceScore:  cached.ConfidenceScore,
 		Nutrition:        cached.NutritionFields,
@@ -253,7 +257,9 @@ func (s *Service) processWithOpenAI(ctx context.Context, event *models.MealEvent
 
 	return &ProcessTextMealResult{
 		MealEventID:      event.ID,
-		Source:           "openai",
+		Source:           event.Source,
+		ProcessedFrom:    "openai",
+		EatenAt:          event.EatenAt,
 		CanonicalName:    openAIResult.CanonicalName,
 		ConfidenceScore:  openAIResult.ConfidenceScore,
 		Assumptions:      openAIResult.Assumptions,
