@@ -56,7 +56,9 @@ type ProcessTextMealResult struct {
 	MealEventID      int64                  `json:"meal_event_id"`
 	Source           string                 `json:"source"`
 	ProcessedFrom    string                 `json:"processed_from"`
+	LoggedAt         time.Time              `json:"logged_at"`
 	EatenAt          time.Time              `json:"eaten_at"`
+	TimeSource       string                 `json:"time_source"`
 	CanonicalName    string                 `json:"canonical_name"`
 	ConfidenceScore  *float64               `json:"confidence_score,omitempty"`
 	Assumptions      []string               `json:"assumptions,omitempty"`
@@ -68,7 +70,9 @@ type ProcessTextMealResult struct {
 type RecentMealResult struct {
 	MealEventID   int64     `json:"meal_event_id"`
 	CanonicalName string    `json:"canonical_name"`
+	LoggedAt      time.Time `json:"logged_at"`
 	EatenAt       time.Time `json:"eaten_at"`
+	TimeSource    string    `json:"time_source"`
 	CaloriesKcal  *float64  `json:"calories_kcal,omitempty"`
 	ProteinG      *float64  `json:"protein_g,omitempty"`
 	CarbohydrateG *float64  `json:"carbohydrate_g,omitempty"`
@@ -200,7 +204,9 @@ func (s *Service) GetRecentMeals(ctx context.Context, userID string, limit int) 
 		out = append(out, RecentMealResult{
 			MealEventID:   row.MealEventID,
 			CanonicalName: row.CanonicalName,
+			LoggedAt:      row.LoggedAt,
 			EatenAt:       row.EatenAt,
+			TimeSource:    row.TimeSource,
 			CaloriesKcal:  row.CaloriesKcal,
 			ProteinG:      row.ProteinG,
 			CarbohydrateG: row.CarbohydrateG,
@@ -271,7 +277,9 @@ func (s *Service) processFromCache(ctx context.Context, event *models.MealEvent,
 		MealEventID:      event.ID,
 		Source:           event.Source,
 		ProcessedFrom:    "cache",
+		LoggedAt:         event.LoggedAt,
 		EatenAt:          event.EatenAt,
+		TimeSource:       event.TimeSource,
 		CanonicalName:    cached.CanonicalName,
 		ConfidenceScore:  cached.ConfidenceScore,
 		Nutrition:        cached.NutritionFields,
@@ -354,7 +362,9 @@ func (s *Service) processWithOpenAI(ctx context.Context, event *models.MealEvent
 		MealEventID:      event.ID,
 		Source:           event.Source,
 		ProcessedFrom:    "openai",
+		LoggedAt:         event.LoggedAt,
 		EatenAt:          event.EatenAt,
+		TimeSource:       event.TimeSource,
 		CanonicalName:    openAIResult.CanonicalName,
 		ConfidenceScore:  openAIResult.ConfidenceScore,
 		Assumptions:      openAIResult.Assumptions,
@@ -463,7 +473,9 @@ func (s *Service) processFromReusableDatabase(ctx context.Context, event *models
 		MealEventID:      event.ID,
 		Source:           event.Source,
 		ProcessedFrom:    "reusable_db",
+		LoggedAt:         event.LoggedAt,
 		EatenAt:          event.EatenAt,
+		TimeSource:       event.TimeSource,
 		CanonicalName:    reusableMeal.CanonicalName,
 		ConfidenceScore:  reusableMeal.ConfidenceScore,
 		Items:            analysisItems,

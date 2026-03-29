@@ -51,7 +51,9 @@ type Response struct {
 type MealResult struct {
 	MealEventID   int64     `json:"meal_event_id"`
 	CanonicalName string    `json:"canonical_name"`
+	LoggedAt      time.Time `json:"logged_at"`
 	EatenAt       time.Time `json:"eaten_at"`
+	TimeSource    string    `json:"time_source"`
 }
 
 type WeightResult struct {
@@ -104,7 +106,9 @@ func (s *Service) HandleMessage(ctx context.Context, req Request) (*Response, er
 			MealResult: &MealResult{
 				MealEventID:   mealResult.MealEventID,
 				CanonicalName: mealResult.CanonicalName,
+				LoggedAt:      mealResult.LoggedAt.UTC(),
 				EatenAt:       mealResult.EatenAt.UTC(),
+				TimeSource:    mealResult.TimeSource,
 			},
 		}, nil
 	case inputclassifier.IntentWeightLog:

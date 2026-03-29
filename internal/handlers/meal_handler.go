@@ -40,7 +40,9 @@ type recentMealsResponse struct {
 type mealResponseItem struct {
 	MealEventID     int64    `json:"meal_event_id"`
 	CanonicalName   string   `json:"canonical_name"`
+	LoggedAt        string   `json:"logged_at"`
 	EatenAt         string   `json:"eaten_at"`
+	TimeSource      string   `json:"time_source"`
 	Source          string   `json:"source"`
 	ConfidenceScore *float64 `json:"confidence_score,omitempty"`
 	CaloriesKcal    *float64 `json:"calories_kcal"`
@@ -187,7 +189,9 @@ func toMealResponseItemFromCreate(result *mealservice.ProcessTextMealResult) mea
 	return mealResponseItem{
 		MealEventID:     result.MealEventID,
 		CanonicalName:   result.CanonicalName,
+		LoggedAt:        result.LoggedAt.UTC().Format(time.RFC3339),
 		EatenAt:         result.EatenAt.UTC().Format(time.RFC3339),
+		TimeSource:      result.TimeSource,
 		Source:          result.Source,
 		ConfidenceScore: result.ConfidenceScore,
 		CaloriesKcal:    result.Nutrition.CaloriesKcal,
@@ -201,7 +205,9 @@ func toMealResponseItemFromRecent(item mealservice.RecentMealResult) mealRespons
 	return mealResponseItem{
 		MealEventID:   item.MealEventID,
 		CanonicalName: item.CanonicalName,
+		LoggedAt:      item.LoggedAt.UTC().Format(time.RFC3339),
 		EatenAt:       item.EatenAt.UTC().Format(time.RFC3339),
+		TimeSource:    item.TimeSource,
 		Source:        item.Source,
 		CaloriesKcal:  item.CaloriesKcal,
 		ProteinG:      item.ProteinG,

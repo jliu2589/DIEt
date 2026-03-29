@@ -18,7 +18,9 @@ type MealEventsRepository struct {
 type RecentMeal struct {
 	MealEventID   int64
 	CanonicalName string
+	LoggedAt      time.Time
 	EatenAt       time.Time
+	TimeSource    string
 	CaloriesKcal  *float64
 	ProteinG      *float64
 	CarbohydrateG *float64
@@ -131,7 +133,9 @@ func (r *MealEventsRepository) ListRecentByUserID(ctx context.Context, userID st
 		SELECT
 			me.id,
 			ma.canonical_name,
+			me.logged_at,
 			me.eaten_at,
+			me.time_source,
 			ma.calories_kcal,
 			ma.protein_g,
 			ma.carbohydrate_g,
@@ -156,7 +160,9 @@ func (r *MealEventsRepository) ListRecentByUserID(ctx context.Context, userID st
 		if err := rows.Scan(
 			&item.MealEventID,
 			&item.CanonicalName,
+			&item.LoggedAt,
 			&item.EatenAt,
+			&item.TimeSource,
 			&item.CaloriesKcal,
 			&item.ProteinG,
 			&item.CarbohydrateG,
