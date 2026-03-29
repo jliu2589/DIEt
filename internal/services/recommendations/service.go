@@ -20,12 +20,25 @@ type Service struct {
 	userSettingsRepo *repositories.UserSettingsRepository
 	summaryRepo      *repositories.DailyNutritionSummaryRepository
 	mealMemoryRepo   *repositories.MealMemoryRepository
+	phraser          Phraser
+	aiPhrasingOn     bool
 }
 
 type Response struct {
 	CaloriesRemaining float64              `json:"calories_remaining"`
 	ProteinRemainingG float64              `json:"protein_remaining_g"`
+	MessageToUser     string               `json:"message_to_user,omitempty"`
 	Items             []RecommendationItem `json:"items"`
+}
+
+type Phraser interface {
+	PhraseRecommendations(ctx context.Context, input PhraseInput) (string, error)
+}
+
+type PhraseInput struct {
+	CaloriesRemaining float64
+	ProteinRemainingG float64
+	Items             []RecommendationItem
 }
 
 type RecommendationItem struct {
@@ -39,7 +52,12 @@ type RecommendationItem struct {
 }
 
 func NewService(userSettingsRepo *repositories.UserSettingsRepository, summaryRepo *repositories.DailyNutritionSummaryRepository, mealMemoryRepo *repositories.MealMemoryRepository) *Service {
-	return &Service{userSettingsRepo: userSettingsRepo, summaryRepo: summaryRepo, mealMemoryRepo: mealMemoryRepo}
+	return &Service{
+		userSettingsRepo: userSettingsRepo,
+		summaryRepo:      summaryRepo,
+		mealMemoryRepo:   mealMemoryRepo,
+		aiPhrasingOn:     true,
+	}
 }
 
 func (s *Service) GetForUserToday(ctx context.Context, userID string, now time.Time) (*Response, error) {
@@ -108,7 +126,24 @@ func (s *Service) GetForUserToday(ctx context.Context, userID string, now time.T
 		items = items[:defaultItemsLimit]
 	}
 
-	return &Response{CaloriesRemaining: caloriesRemaining, ProteinRemainingG: proteinRemaining, Items: items}, nil
+	response := &Response{
+		CaloriesRemaining: caloriesRemaining,
+		ProteinRemainingG: proteinRemaining,
+		MessageToUser:     defaultExplanation(caloriesRemaining, proteinRemaining),
+		Items:             items,
+	}
+
+	if s.aiPhrasingOn && s.phraser != nil {
+		if message, err := s.phraser.PhraseRecommendations(ctx, PhraseInput{
+			CaloriesRemaining: caloriesRemaining,
+			ProteinRemainingG: proteinRemaining,
+			Items:             items,
+		}); err == nil && strings.TrimSpace(message) != "" {
+			response.MessageToUser = strings.TrimSpace(message)
+		}
+	}
+
+	return response, nil
 }
 
 func recommendationScore(calRemain, proRemain, cal, pro float64) float64 {
@@ -123,4 +158,20 @@ func valueOrZero(v *float64) float64 {
 		return 0
 	}
 	return *v
+}
+
+func defaultExplanation(caloriesRemaining, proteinRemaining float64) string {
+	return fmt.Sprintf(
+		"You still have about %.0f calories and %.0fg protein left. These meals would help you close the gap.",
+		caloriesRemaining,
+		proteinRemaining,
+	)
+}
+
+func (s *Service) SetPhraser(phraser Phraser) {
+	s.phraser = phraser
+}
+
+func (s *Service) SetAIPhrasingEnabled(enabled bool) {
+	s.aiPhrasingOn = enabled
 }
