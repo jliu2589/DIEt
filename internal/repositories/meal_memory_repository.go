@@ -14,8 +14,60 @@ type MealMemoryRepository struct {
 	pool *pgxpool.Pool
 }
 
+type MealRecommendationCandidate struct {
+	MealID        int64
+	CanonicalName string
+	CaloriesKcal  *float64
+	ProteinG      *float64
+	CarbohydrateG *float64
+	FatG          *float64
+}
+
 func NewMealMemoryRepository(pool *pgxpool.Pool) *MealMemoryRepository {
 	return &MealMemoryRepository{pool: pool}
+}
+
+func (r *MealMemoryRepository) ListRecommendationCandidates(ctx context.Context, limit int) ([]MealRecommendationCandidate, error) {
+	const q = `
+		SELECT
+			id,
+			canonical_name,
+			calories_kcal,
+			protein_g,
+			carbohydrate_g,
+			fat_g
+		FROM meal_memory
+		WHERE canonical_name <> ''
+		ORDER BY usage_count DESC, last_used_at DESC NULLS LAST, id DESC
+		LIMIT $1
+	`
+
+	rows, err := r.pool.Query(ctx, q, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list meal_memory recommendation candidates: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]MealRecommendationCandidate, 0, limit)
+	for rows.Next() {
+		var item MealRecommendationCandidate
+		if err := rows.Scan(
+			&item.MealID,
+			&item.CanonicalName,
+			&item.CaloriesKcal,
+			&item.ProteinG,
+			&item.CarbohydrateG,
+			&item.FatG,
+		); err != nil {
+			return nil, fmt.Errorf("scan meal_memory recommendation candidate: %w", err)
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate meal_memory recommendation candidates: %w", err)
+	}
+
+	return out, nil
 }
 
 func (r *MealMemoryRepository) FindByFingerprintHash(ctx context.Context, fingerprintHash string) (*models.MealMemory, error) {
