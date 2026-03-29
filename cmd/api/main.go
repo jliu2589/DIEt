@@ -18,6 +18,7 @@ import (
 	inputclassifierservice "diet/internal/services/input_classifier"
 	mealservice "diet/internal/services/meal"
 	openaiservice "diet/internal/services/openai"
+	recommendationsservice "diet/internal/services/recommendations"
 	telegramservice "diet/internal/services/telegram"
 	trendsservice "diet/internal/services/trends"
 	usersettingsservice "diet/internal/services/user_settings"
@@ -87,16 +88,20 @@ func main() {
 	// 12) Chat routing service
 	chatSvc := chatservice.NewService(classifierSvc, mealSvc, weightSvc)
 
-	// 13) Handlers + 14) Gin router
+	// 13) Recommendations service
+	recommendationsSvc := recommendationsservice.NewService(repos.UserSettings, repos.DailyNutritionSummary, repos.MealMemory)
+
+	// 14) Handlers + 15) Gin router
 	router := server.NewRouter(server.Dependencies{
-		HealthHandler:  handlers.NewHealthHandler(),
-		MealHandler:    handlers.NewMealHandler(mealSvc),
-		ChatHandler:    handlers.NewChatHandler(chatSvc),
-		SummaryHandler: handlers.NewSummaryHandler(repos.DailyNutritionSummary),
-		UserSettings:   handlers.NewUserSettingsHandler(userSettingsSvc),
-		WeightHandler:  handlers.NewWeightHandler(weightSvc),
-		TrendsHandler:  handlers.NewTrendsHandler(trendsSvc),
-		MeHandler:      handlers.NewMeHandler(userStateSvc),
+		HealthHandler:   handlers.NewHealthHandler(),
+		MealHandler:     handlers.NewMealHandler(mealSvc),
+		ChatHandler:     handlers.NewChatHandler(chatSvc),
+		SummaryHandler:  handlers.NewSummaryHandler(repos.DailyNutritionSummary),
+		Recommendations: handlers.NewRecommendationsHandler(recommendationsSvc),
+		UserSettings:    handlers.NewUserSettingsHandler(userSettingsSvc),
+		WeightHandler:   handlers.NewWeightHandler(weightSvc),
+		TrendsHandler:   handlers.NewTrendsHandler(trendsSvc),
+		MeHandler:       handlers.NewMeHandler(userStateSvc),
 		TelegramHandler: handlers.NewTelegramHandler(
 			cfg.TelegramWebhookSecretPath,
 			cfg.TelegramWebhookSecretToken,
@@ -104,7 +109,7 @@ func main() {
 		),
 	})
 
-	// 15) HTTP server
+	// 16) HTTP server
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           router,

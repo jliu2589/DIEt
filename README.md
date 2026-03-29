@@ -58,6 +58,7 @@ Server starts on `:$PORT`.
 - `GET /v1/meals/recent?user_id=<id>&limit=20`
 - `PATCH /v1/meals/:mealEventID/time`
 - `GET /v1/daily-summary?user_id=<id>&date=YYYY-MM-DD`
+- `GET /v1/recommendations?user_id=<id>`
 - `GET /v1/settings?user_id=<id>`
 - `PUT /v1/settings`
 - `POST /v1/weight`
