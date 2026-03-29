@@ -110,8 +110,13 @@ func (s *Service) ProcessTextMeal(ctx context.Context, input ProcessTextMealInpu
 	eatenAt := input.EatenAt
 	timeSource := "explicit"
 	if eatenAt.IsZero() {
-		eatenAt = time.Now().UTC()
-		timeSource = "default_now"
+		if parsedEatenAt, ok := parseEatenAtFromText(input.RawText, time.Now().UTC()); ok {
+			eatenAt = parsedEatenAt
+			timeSource = "explicit"
+		} else {
+			eatenAt = time.Now().UTC()
+			timeSource = "default_now"
+		}
 	}
 	eatenAt = eatenAt.UTC()
 	if strings.TrimSpace(input.Source) == "" {
