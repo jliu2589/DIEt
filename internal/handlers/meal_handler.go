@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"diet/internal/models"
 	mealservice "diet/internal/services/meal"
 	"github.com/gin-gonic/gin"
 )
@@ -24,30 +23,30 @@ type createMealRequest struct {
 	UserID  string    `json:"user_id" binding:"required"`
 	Source  string    `json:"source" binding:"required"`
 	RawText string    `json:"raw_text" binding:"required"`
-	EatenAt time.Time `json:"eaten_at" binding:"required"`
+	EatenAt time.Time `json:"eaten_at"`
 }
 
 type createMealResponse struct {
-	MealEventID     int64                  `json:"meal_event_id"`
-	ProcessedFrom   string                 `json:"processed_from"`
-	CanonicalName   string                 `json:"canonical_name"`
-	Nutrition       models.NutritionFields `json:"nutrition"`
-	ConfidenceScore *float64               `json:"confidence_score,omitempty"`
+	Intent  string            `json:"intent"`
+	Logged  bool              `json:"logged"`
+	Message string            `json:"message"`
+	Item    *mealResponseItem `json:"item,omitempty"`
 }
 
 type recentMealsResponse struct {
-	Items []recentMealItem `json:"items"`
+	Items []mealResponseItem `json:"items"`
 }
 
-type recentMealItem struct {
-	MealEventID   int64   `json:"meal_event_id"`
-	CanonicalName string  `json:"canonical_name"`
-	EatenAt       string  `json:"eaten_at"`
-	CaloriesKcal  float64 `json:"calories_kcal"`
-	ProteinG      float64 `json:"protein_g"`
-	CarbohydrateG float64 `json:"carbohydrate_g"`
-	FatG          float64 `json:"fat_g"`
-	Source        string  `json:"source"`
+type mealResponseItem struct {
+	MealEventID     int64    `json:"meal_event_id"`
+	CanonicalName   string   `json:"canonical_name"`
+	EatenAt         string   `json:"eaten_at"`
+	Source          string   `json:"source"`
+	ConfidenceScore *float64 `json:"confidence_score,omitempty"`
+	CaloriesKcal    *float64 `json:"calories_kcal"`
+	ProteinG        *float64 `json:"protein_g"`
+	CarbohydrateG   *float64 `json:"carbohydrate_g"`
+	FatG            *float64 `json:"fat_g"`
 }
 
 func (h *MealHandler) CreateMeal(c *gin.Context) {
@@ -57,13 +56,14 @@ func (h *MealHandler) CreateMeal(c *gin.Context) {
 		return
 	}
 
-	if strings.TrimSpace(req.UserID) == "" || strings.TrimSpace(req.RawText) == "" || strings.TrimSpace(req.Source) == "" {
+	userID, ok := normalizeRequiredUserID(req.UserID)
+	if !ok || strings.TrimSpace(req.RawText) == "" || strings.TrimSpace(req.Source) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id, source, and raw_text are required"})
 		return
 	}
 
 	result, err := h.service.ProcessTextMeal(c.Request.Context(), mealservice.ProcessTextMealInput{
-		UserID:  req.UserID,
+		UserID:  userID,
 		Source:  req.Source,
 		RawText: req.RawText,
 		EatenAt: req.EatenAt,
@@ -73,19 +73,22 @@ func (h *MealHandler) CreateMeal(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, createMealResponse{
-		MealEventID:     result.MealEventID,
-		ProcessedFrom:   result.Source,
-		CanonicalName:   result.CanonicalName,
-		Nutrition:       result.Nutrition,
-		ConfidenceScore: result.ConfidenceScore,
-	})
+	resp := createMealResponse{
+		Intent:  result.Intent,
+		Logged:  result.Logged,
+		Message: result.Message,
+	}
+	if result.Logged {
+		item := toMealResponseItemFromCreate(result)
+		resp.Item = &item
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 func (h *MealHandler) GetRecentMeals(c *gin.Context) {
-	userID := strings.TrimSpace(c.Query("user_id"))
-	if userID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id is required"})
+	userID, ok := requiredUserIDFromQuery(c)
+	if !ok {
 		return
 	}
 
@@ -101,18 +104,9 @@ func (h *MealHandler) GetRecentMeals(c *gin.Context) {
 		return
 	}
 
-	respItems := make([]recentMealItem, 0, len(items))
+	respItems := make([]mealResponseItem, 0, len(items))
 	for _, item := range items {
-		respItems = append(respItems, recentMealItem{
-			MealEventID:   item.MealEventID,
-			CanonicalName: item.CanonicalName,
-			EatenAt:       item.EatenAt.UTC().Format(time.RFC3339),
-			CaloriesKcal:  floatPtrOrZero(item.CaloriesKcal),
-			ProteinG:      floatPtrOrZero(item.ProteinG),
-			CarbohydrateG: floatPtrOrZero(item.CarbohydrateG),
-			FatG:          floatPtrOrZero(item.FatG),
-			Source:        item.Source,
-		})
+		respItems = append(respItems, toMealResponseItemFromRecent(item))
 	}
 
 	c.JSON(http.StatusOK, recentMealsResponse{Items: respItems})
@@ -132,9 +126,33 @@ func parseLimitQuery(limitRaw string) (int, error) {
 	return limit, nil
 }
 
-func floatPtrOrZero(v *float64) float64 {
-	if v == nil {
-		return 0
+func toMealResponseItemFromCreate(result *mealservice.ProcessTextMealResult) mealResponseItem {
+	if result == nil {
+		return mealResponseItem{}
 	}
-	return *v
+
+	return mealResponseItem{
+		MealEventID:     result.MealEventID,
+		CanonicalName:   result.CanonicalName,
+		EatenAt:         result.EatenAt.UTC().Format(time.RFC3339),
+		Source:          result.Source,
+		ConfidenceScore: result.ConfidenceScore,
+		CaloriesKcal:    result.Nutrition.CaloriesKcal,
+		ProteinG:        result.Nutrition.ProteinG,
+		CarbohydrateG:   result.Nutrition.CarbohydrateG,
+		FatG:            result.Nutrition.FatG,
+	}
+}
+
+func toMealResponseItemFromRecent(item mealservice.RecentMealResult) mealResponseItem {
+	return mealResponseItem{
+		MealEventID:   item.MealEventID,
+		CanonicalName: item.CanonicalName,
+		EatenAt:       item.EatenAt.UTC().Format(time.RFC3339),
+		Source:        item.Source,
+		CaloriesKcal:  item.CaloriesKcal,
+		ProteinG:      item.ProteinG,
+		CarbohydrateG: item.CarbohydrateG,
+		FatG:          item.FatG,
+	}
 }

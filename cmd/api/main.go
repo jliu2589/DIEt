@@ -14,9 +14,14 @@ import (
 	"diet/internal/handlers"
 	"diet/internal/repositories"
 	"diet/internal/server"
+	inputclassifierservice "diet/internal/services/input_classifier"
 	mealservice "diet/internal/services/meal"
 	openaiservice "diet/internal/services/openai"
 	telegramservice "diet/internal/services/telegram"
+	trendsservice "diet/internal/services/trends"
+	usersettingsservice "diet/internal/services/user_settings"
+	userstateservice "diet/internal/services/user_state"
+	weightservice "diet/internal/services/weight"
 )
 
 func main() {
@@ -50,25 +55,43 @@ func main() {
 	openAIClient := openaiservice.NewClient(cfg.OpenAIAPIKey, "")
 
 	// 5) Meal service
+	classifierSvc := inputclassifierservice.NewService()
 	mealSvc := mealservice.NewService(
 		repos.MealEvents,
 		repos.MealAnalysis,
 		repos.MealMemory,
 		repos.DailyNutritionSummary,
 		openAIClient,
+		classifierSvc,
 	)
 
 	// 6) Telegram bot client
 	telegramBotClient := telegramservice.NewBotClient(cfg.TelegramBotToken)
 
-	// 7) Telegram service
+	// 7) User settings service
+	userSettingsSvc := usersettingsservice.NewService(repos.UserSettings)
+
+	// 8) Telegram service
 	telegramSvc := telegramservice.NewService(mealSvc, telegramBotClient)
 
-	// 8) Handlers + 9) Gin router
+	// 9) Weight service
+	weightSvc := weightservice.NewService(repos.WeightEntries)
+
+	// 10) Trends service
+	trendsSvc := trendsservice.NewService(repos.WeightEntries, repos.DailyNutritionSummary)
+
+	// 11) User state service
+	userStateSvc := userstateservice.NewService(repos.UserSettings, repos.WeightEntries)
+
+	// 12) Handlers + 13) Gin router
 	router := server.NewRouter(server.Dependencies{
 		HealthHandler:  handlers.NewHealthHandler(),
 		MealHandler:    handlers.NewMealHandler(mealSvc),
 		SummaryHandler: handlers.NewSummaryHandler(repos.DailyNutritionSummary),
+		UserSettings:   handlers.NewUserSettingsHandler(userSettingsSvc),
+		WeightHandler:  handlers.NewWeightHandler(weightSvc),
+		TrendsHandler:  handlers.NewTrendsHandler(trendsSvc),
+		MeHandler:      handlers.NewMeHandler(userStateSvc),
 		TelegramHandler: handlers.NewTelegramHandler(
 			cfg.TelegramWebhookSecretPath,
 			cfg.TelegramWebhookSecretToken,
@@ -76,7 +99,7 @@ func main() {
 		),
 	})
 
-	// 10) HTTP server
+	// 14) HTTP server
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           router,
