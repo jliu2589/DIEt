@@ -35,8 +35,10 @@ type Service struct {
 }
 
 const (
-	defaultRecentMealsLimit = 20
-	maxRecentMealsLimit     = 100
+	defaultRecentMealsLimit   = 20
+	maxRecentMealsLimit       = 100
+	defaultReusableMealSearch = 50
+	reusableMatchThreshold    = 0.80
 )
 
 type ProcessTextMealInput struct {
@@ -167,7 +169,7 @@ func (s *Service) ProcessTextMeal(ctx context.Context, input ProcessTextMealInpu
 		return s.processFromCache(ctx, event, cached)
 	}
 
-	if reusableResult, err := s.processFromReusableMeal(ctx, event, fingerprint); err != nil {
+	if reusableResult, err := s.processFromReusableDatabase(ctx, event, fingerprint, input.RawText); err != nil {
 		return nil, err
 	} else if reusableResult != nil {
 		return reusableResult, nil
@@ -362,7 +364,7 @@ func (s *Service) processWithOpenAI(ctx context.Context, event *models.MealEvent
 	}, nil
 }
 
-func (s *Service) processFromReusableMeal(ctx context.Context, event *models.MealEvent, fingerprint string) (*ProcessTextMealResult, error) {
+func (s *Service) processFromReusableDatabase(ctx context.Context, event *models.MealEvent, fingerprint string, rawText string) (*ProcessTextMealResult, error) {
 	if s.mealsRepo == nil || s.mealItemsRepo == nil || s.canonicalFoodsRepo == nil {
 		return nil, nil
 	}
@@ -372,7 +374,20 @@ func (s *Service) processFromReusableMeal(ctx context.Context, event *models.Mea
 		return nil, fmt.Errorf("lookup reusable meal by fingerprint: %w", err)
 	}
 	if reusableMeal == nil {
-		return nil, nil
+		matched, matchConfidence, err := s.findReusableMealMatch(ctx, rawText)
+		if err != nil {
+			return nil, err
+		}
+		if matched == nil || matchConfidence < reusableMatchThreshold {
+			return nil, nil
+		}
+		reusableMeal, err = s.mealsRepo.GetByID(ctx, matched.ID)
+		if err != nil {
+			return nil, fmt.Errorf("get matched reusable meal by id: %w", err)
+		}
+		if reusableMeal == nil {
+			return nil, nil
+		}
 	}
 
 	storedItems, err := s.mealItemsRepo.ListByMealID(ctx, reusableMeal.ID)
@@ -447,7 +462,7 @@ func (s *Service) processFromReusableMeal(ctx context.Context, event *models.Mea
 		Message:          "Logged your meal.",
 		MealEventID:      event.ID,
 		Source:           event.Source,
-		ProcessedFrom:    "reusable_meal",
+		ProcessedFrom:    "reusable_db",
 		EatenAt:          event.EatenAt,
 		CanonicalName:    reusableMeal.CanonicalName,
 		ConfidenceScore:  reusableMeal.ConfidenceScore,
@@ -455,6 +470,48 @@ func (s *Service) processFromReusableMeal(ctx context.Context, event *models.Mea
 		Nutrition:        total,
 		DailySummaryDate: summaryDate.Format("2006-01-02"),
 	}, nil
+}
+
+func (s *Service) findReusableMealMatch(ctx context.Context, rawText string) (*repositories.MealCandidate, float64, error) {
+	if s.mealsRepo == nil {
+		return nil, 0, nil
+	}
+
+	candidates, err := s.mealsRepo.ListCandidates(ctx, defaultReusableMealSearch)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list reusable meal candidates: %w", err)
+	}
+	if len(candidates) == 0 {
+		return nil, 0, nil
+	}
+
+	normalizedText := NormalizeText(rawText)
+	bestScore := 0.0
+	var best *repositories.MealCandidate
+	for i := range candidates {
+		name := NormalizeText(candidates[i].CanonicalName)
+		if name == "" {
+			continue
+		}
+		score := 0.0
+		switch {
+		case normalizedText == name:
+			score = 1.0
+		case strings.Contains(normalizedText, name):
+			score = 0.9
+		case strings.Contains(name, normalizedText):
+			score = 0.85
+		}
+		if candidates[i].ConfidenceScore != nil {
+			score = (score + *candidates[i].ConfidenceScore) / 2
+		}
+		if score > bestScore {
+			bestScore = score
+			best = &candidates[i]
+		}
+	}
+
+	return best, bestScore, nil
 }
 
 func (s *Service) maybeSaveReusableMealTemplate(ctx context.Context, fingerprint string, canonicalName string, confidenceScore *float64, items []models.MealItem) error {

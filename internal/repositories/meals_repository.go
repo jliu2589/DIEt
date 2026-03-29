@@ -16,6 +16,13 @@ type MealsRepository struct {
 	pool *pgxpool.Pool
 }
 
+type MealCandidate struct {
+	ID              int64
+	CanonicalName   string
+	FingerprintHash *string
+	ConfidenceScore *float64
+}
+
 func NewMealsRepository(pool *pgxpool.Pool) *MealsRepository {
 	return &MealsRepository{pool: pool}
 }
@@ -137,4 +144,41 @@ func (r *MealsRepository) GetByFingerprintHash(ctx context.Context, fingerprintH
 	}
 
 	return &out, nil
+}
+
+func (r *MealsRepository) ListCandidates(ctx context.Context, limit int) ([]MealCandidate, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+
+	const q = `
+		SELECT
+			id,
+			canonical_name,
+			fingerprint_hash,
+			confidence_score
+		FROM meals
+		ORDER BY updated_at DESC, id DESC
+		LIMIT $1
+	`
+
+	rows, err := r.pool.Query(ctx, q, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list meal candidates: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]MealCandidate, 0)
+	for rows.Next() {
+		var c MealCandidate
+		if err := rows.Scan(&c.ID, &c.CanonicalName, &c.FingerprintHash, &c.ConfidenceScore); err != nil {
+			return nil, fmt.Errorf("scan meal candidate row: %w", err)
+		}
+		out = append(out, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate meal candidate rows: %w", err)
+	}
+
+	return out, nil
 }
