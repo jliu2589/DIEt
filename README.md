@@ -61,6 +61,7 @@ Server starts on `:$PORT`.
 - `POST /v1/weight`
 - `GET /v1/weight/latest?user_id=<id>`
 - `GET /v1/weight/recent?user_id=<id>&limit=30`
+- `GET /v1/trends?user_id=<id>&range=7d|30d|90d|1y`
 - `POST /v1/integrations/telegram/webhook/:secretPath`
 
 ## Example: `POST /v1/meals`

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"diet/internal/models"
 	"github.com/jackc/pgx/v5"
@@ -12,6 +13,11 @@ import (
 
 type WeightEntriesRepository struct {
 	pool *pgxpool.Pool
+}
+
+type DailyWeightEntry struct {
+	Date   time.Time
+	Weight float64
 }
 
 func NewWeightEntriesRepository(pool *pgxpool.Pool) *WeightEntriesRepository {
@@ -135,4 +141,44 @@ func (r *WeightEntriesRepository) ListRecentByUserID(ctx context.Context, userID
 	}
 
 	return entries, nil
+}
+
+func (r *WeightEntriesRepository) ListDailyLatestByUserIDAndDateRange(ctx context.Context, userID string, startAt, endExclusive time.Time) ([]DailyWeightEntry, error) {
+	const q = `
+		SELECT DISTINCT ON (entry_date)
+			entry_date,
+			weight
+		FROM (
+			SELECT
+				(logged_at AT TIME ZONE 'UTC')::date AS entry_date,
+				weight,
+				logged_at,
+				id
+			FROM weight_entries
+			WHERE user_id = $1
+				AND logged_at >= $2
+				AND logged_at < $3
+		) w
+		ORDER BY entry_date ASC, logged_at DESC, id DESC
+	`
+
+	rows, err := r.pool.Query(ctx, q, userID, startAt, endExclusive)
+	if err != nil {
+		return nil, fmt.Errorf("list daily latest weight_entries by user and date range: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]DailyWeightEntry, 0)
+	for rows.Next() {
+		var item DailyWeightEntry
+		if err := rows.Scan(&item.Date, &item.Weight); err != nil {
+			return nil, fmt.Errorf("scan daily latest weight_entry: %w", err)
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate daily latest weight_entries: %w", err)
+	}
+
+	return out, nil
 }
