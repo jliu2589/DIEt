@@ -19,8 +19,35 @@ func NewSummaryHandler(repo *repositories.DailyNutritionSummaryRepository) *Summ
 }
 
 type dailySummaryResponse struct {
-	UserID        string  `json:"user_id"`
-	Date          string  `json:"date"`
+	UserID    string             `json:"user_id"`
+	Date      string             `json:"date"`
+	Totals    dailySummaryTotals `json:"totals"`
+	MealCount *int64             `json:"meal_count,omitempty"`
+	dailySummaryLegacyShape
+}
+
+type dailySummaryTotals struct {
+	CaloriesKcal  float64 `json:"calories_kcal"`
+	ProteinG      float64 `json:"protein_g"`
+	CarbohydrateG float64 `json:"carbohydrate_g"`
+	FatG          float64 `json:"fat_g"`
+	FiberG        float64 `json:"fiber_g"`
+	SugarsG       float64 `json:"sugars_g"`
+	SaturatedFatG float64 `json:"saturated_fat_g"`
+	SodiumMg      float64 `json:"sodium_mg"`
+	PotassiumMg   float64 `json:"potassium_mg"`
+	CalciumMg     float64 `json:"calcium_mg"`
+	MagnesiumMg   float64 `json:"magnesium_mg"`
+	IronMg        float64 `json:"iron_mg"`
+	ZincMg        float64 `json:"zinc_mg"`
+	VitaminDMcg   float64 `json:"vitamin_d_mcg"`
+	VitaminB12Mcg float64 `json:"vitamin_b12_mcg"`
+	FolateB9Mcg   float64 `json:"folate_b9_mcg"`
+	VitaminCMg    float64 `json:"vitamin_c_mg"`
+}
+
+// dailySummaryLegacyShape keeps backward-compatible top-level fields.
+type dailySummaryLegacyShape struct {
 	CaloriesKcal  float64 `json:"calories_kcal"`
 	ProteinG      float64 `json:"protein_g"`
 	CarbohydrateG float64 `json:"carbohydrate_g"`
@@ -69,9 +96,7 @@ func (h *SummaryHandler) GetDailySummary(c *gin.Context) {
 }
 
 func newDailySummaryResponse(userID, date string, n models.NutritionFields) dailySummaryResponse {
-	return dailySummaryResponse{
-		UserID:        userID,
-		Date:          date,
+	totals := dailySummaryTotals{
 		CaloriesKcal:  floatOrZero(n.CaloriesKcal),
 		ProteinG:      floatOrZero(n.ProteinG),
 		CarbohydrateG: floatOrZero(n.CarbohydrateG),
@@ -89,6 +114,13 @@ func newDailySummaryResponse(userID, date string, n models.NutritionFields) dail
 		VitaminB12Mcg: floatOrZero(n.VitaminB12Mcg),
 		FolateB9Mcg:   floatOrZero(n.FolateB9Mcg),
 		VitaminCMg:    floatOrZero(n.VitaminCMg),
+	}
+
+	return dailySummaryResponse{
+		UserID:                  userID,
+		Date:                    date,
+		Totals:                  totals,
+		dailySummaryLegacyShape: dailySummaryLegacyShape(totals),
 	}
 }
 
