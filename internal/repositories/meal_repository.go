@@ -10,6 +10,8 @@ type Repositories struct {
 	UserSettings          *UserSettingsRepository
 	WeightEntries         *WeightEntriesRepository
 	CanonicalFoods        *CanonicalFoodsRepository
+	Meals                 *MealsRepository
+	MealItems             *MealItemsRepository
 }
 
 func New(pool *pgxpool.Pool) Repositories {
@@ -21,5 +23,7 @@ func New(pool *pgxpool.Pool) Repositories {
 		UserSettings:          NewUserSettingsRepository(pool),
 		WeightEntries:         NewWeightEntriesRepository(pool),
 		CanonicalFoods:        NewCanonicalFoodsRepository(pool),
+		Meals:                 NewMealsRepository(pool),
+		MealItems:             NewMealItemsRepository(pool),
 	}
 }
