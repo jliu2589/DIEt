@@ -27,7 +27,10 @@ type createMealRequest struct {
 }
 
 type createMealResponse struct {
-	Item mealResponseItem `json:"item"`
+	Intent  string            `json:"intent"`
+	Logged  bool              `json:"logged"`
+	Message string            `json:"message"`
+	Item    *mealResponseItem `json:"item,omitempty"`
 }
 
 type recentMealsResponse struct {
@@ -70,7 +73,17 @@ func (h *MealHandler) CreateMeal(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, createMealResponse{Item: toMealResponseItemFromCreate(result)})
+	resp := createMealResponse{
+		Intent:  result.Intent,
+		Logged:  result.Logged,
+		Message: result.Message,
+	}
+	if result.Logged {
+		item := toMealResponseItemFromCreate(result)
+		resp.Item = &item
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 func (h *MealHandler) GetRecentMeals(c *gin.Context) {

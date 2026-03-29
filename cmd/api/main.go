@@ -14,6 +14,7 @@ import (
 	"diet/internal/handlers"
 	"diet/internal/repositories"
 	"diet/internal/server"
+	inputclassifierservice "diet/internal/services/input_classifier"
 	mealservice "diet/internal/services/meal"
 	openaiservice "diet/internal/services/openai"
 	telegramservice "diet/internal/services/telegram"
@@ -54,12 +55,14 @@ func main() {
 	openAIClient := openaiservice.NewClient(cfg.OpenAIAPIKey, "")
 
 	// 5) Meal service
+	classifierSvc := inputclassifierservice.NewService()
 	mealSvc := mealservice.NewService(
 		repos.MealEvents,
 		repos.MealAnalysis,
 		repos.MealMemory,
 		repos.DailyNutritionSummary,
 		openAIClient,
+		classifierSvc,
 	)
 
 	// 6) Telegram bot client
