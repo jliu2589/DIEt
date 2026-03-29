@@ -14,6 +14,7 @@ import (
 	"diet/internal/handlers"
 	"diet/internal/repositories"
 	"diet/internal/server"
+	chatservice "diet/internal/services/chat"
 	inputclassifierservice "diet/internal/services/input_classifier"
 	mealservice "diet/internal/services/meal"
 	openaiservice "diet/internal/services/openai"
@@ -83,10 +84,14 @@ func main() {
 	// 11) User state service
 	userStateSvc := userstateservice.NewService(repos.UserSettings, repos.WeightEntries)
 
-	// 12) Handlers + 13) Gin router
+	// 12) Chat routing service
+	chatSvc := chatservice.NewService(classifierSvc, mealSvc, weightSvc)
+
+	// 13) Handlers + 14) Gin router
 	router := server.NewRouter(server.Dependencies{
 		HealthHandler:  handlers.NewHealthHandler(),
 		MealHandler:    handlers.NewMealHandler(mealSvc),
+		ChatHandler:    handlers.NewChatHandler(chatSvc),
 		SummaryHandler: handlers.NewSummaryHandler(repos.DailyNutritionSummary),
 		UserSettings:   handlers.NewUserSettingsHandler(userSettingsSvc),
 		WeightHandler:  handlers.NewWeightHandler(weightSvc),
@@ -99,7 +104,7 @@ func main() {
 		),
 	})
 
-	// 14) HTTP server
+	// 15) HTTP server
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           router,

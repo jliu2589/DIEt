@@ -54,6 +54,7 @@ Server starts on `:$PORT`.
 ## HTTP Routes
 - `GET /health`
 - `POST /v1/meals`
+- `POST /v1/chat`
 - `GET /v1/meals/recent?user_id=<id>&limit=20`
 - `PATCH /v1/meals/:mealEventID/time`
 - `GET /v1/daily-summary?user_id=<id>&date=YYYY-MM-DD`
