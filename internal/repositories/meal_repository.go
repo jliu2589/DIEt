@@ -9,6 +9,7 @@ type Repositories struct {
 	DailyNutritionSummary *DailyNutritionSummaryRepository
 	UserSettings          *UserSettingsRepository
 	WeightEntries         *WeightEntriesRepository
+	CanonicalFoods        *CanonicalFoodsRepository
 }
 
 func New(pool *pgxpool.Pool) Repositories {
@@ -19,5 +20,6 @@ func New(pool *pgxpool.Pool) Repositories {
 		DailyNutritionSummary: NewDailyNutritionSummaryRepository(pool),
 		UserSettings:          NewUserSettingsRepository(pool),
 		WeightEntries:         NewWeightEntriesRepository(pool),
+		CanonicalFoods:        NewCanonicalFoodsRepository(pool),
 	}
 }
