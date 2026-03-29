@@ -19,7 +19,10 @@ func NewService() *Service {
 	return &Service{}
 }
 
-var weightLogPattern = regexp.MustCompile(`(?i)^\s*(?:i\s*(?:weigh|am)\s*)?(\d{2,3}(?:\.\d+)?)\s*(kg|kgs|kilograms?|lb|lbs|pounds?)\s*$`)
+var (
+	weightLogPattern  = regexp.MustCompile(`(?i)\b\d{2,3}(?:\.\d+)?\s*(kg|kgs|kilograms?|lb|lbs|pounds?)\b`)
+	weightHintPattern = regexp.MustCompile(`(?i)\b(weight|weigh|scale)\b`)
+)
 
 func (s *Service) Classify(rawText string) string {
 	text := strings.ToLower(strings.TrimSpace(rawText))
@@ -44,7 +47,16 @@ func (s *Service) Classify(rawText string) string {
 }
 
 func isWeightLog(text string) bool {
-	return weightLogPattern.MatchString(text)
+	if weightLogPattern.MatchString(text) {
+		return true
+	}
+	if weightHintPattern.MatchString(text) && strings.Contains(text, "kg") {
+		return true
+	}
+	if weightHintPattern.MatchString(text) && strings.Contains(text, "lb") {
+		return true
+	}
+	return false
 }
 
 func isRecommendationRequest(text string) bool {
