@@ -53,13 +53,14 @@ func (h *MealHandler) CreateMeal(c *gin.Context) {
 		return
 	}
 
-	if strings.TrimSpace(req.UserID) == "" || strings.TrimSpace(req.RawText) == "" || strings.TrimSpace(req.Source) == "" {
+	userID, ok := normalizeRequiredUserID(req.UserID)
+	if !ok || strings.TrimSpace(req.RawText) == "" || strings.TrimSpace(req.Source) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id, source, and raw_text are required"})
 		return
 	}
 
 	result, err := h.service.ProcessTextMeal(c.Request.Context(), mealservice.ProcessTextMealInput{
-		UserID:  req.UserID,
+		UserID:  userID,
 		Source:  req.Source,
 		RawText: req.RawText,
 		EatenAt: req.EatenAt,
@@ -73,9 +74,8 @@ func (h *MealHandler) CreateMeal(c *gin.Context) {
 }
 
 func (h *MealHandler) GetRecentMeals(c *gin.Context) {
-	userID := strings.TrimSpace(c.Query("user_id"))
-	if userID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id is required"})
+	userID, ok := requiredUserIDFromQuery(c)
+	if !ok {
 		return
 	}
 

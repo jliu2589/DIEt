@@ -37,9 +37,8 @@ type userSettingsResponse struct {
 }
 
 func (h *UserSettingsHandler) GetUserSettings(c *gin.Context) {
-	userID := strings.TrimSpace(c.Query("user_id"))
-	if userID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id is required"})
+	userID, ok := requiredUserIDFromQuery(c)
+	if !ok {
 		return
 	}
 
@@ -68,13 +67,14 @@ func (h *UserSettingsHandler) UpsertUserSettings(c *gin.Context) {
 		return
 	}
 
-	if strings.TrimSpace(req.UserID) == "" {
+	userID, ok := normalizeRequiredUserID(req.UserID)
+	if !ok {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id is required"})
 		return
 	}
 
 	settings, err := h.service.Upsert(c.Request.Context(), userSettingsService.UpsertInput{
-		UserID:       req.UserID,
+		UserID:       userID,
 		Name:         req.Name,
 		HeightCM:     req.HeightCM,
 		WeightGoalKG: req.WeightGoalKG,

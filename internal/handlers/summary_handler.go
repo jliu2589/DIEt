@@ -68,10 +68,13 @@ type dailySummaryLegacyShape struct {
 }
 
 func (h *SummaryHandler) GetDailySummary(c *gin.Context) {
-	userID := strings.TrimSpace(c.Query("user_id"))
+	userID, ok := requiredUserIDFromQuery(c)
+	if !ok {
+		return
+	}
 	dateRaw := strings.TrimSpace(c.Query("date"))
-	if userID == "" || dateRaw == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id and date are required"})
+	if dateRaw == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "date is required"})
 		return
 	}
 

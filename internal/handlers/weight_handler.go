@@ -46,8 +46,14 @@ func (h *WeightHandler) CreateWeightEntry(c *gin.Context) {
 		return
 	}
 
+	userID, ok := normalizeRequiredUserID(req.UserID)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id is required"})
+		return
+	}
+
 	entry, err := h.service.CreateEntry(c.Request.Context(), weightservice.CreateEntryInput{
-		UserID:   req.UserID,
+		UserID:   userID,
 		Weight:   req.Weight,
 		Unit:     req.Unit,
 		LoggedAt: req.LoggedAt,
@@ -65,9 +71,8 @@ func (h *WeightHandler) CreateWeightEntry(c *gin.Context) {
 }
 
 func (h *WeightHandler) GetLatestWeightEntry(c *gin.Context) {
-	userID := strings.TrimSpace(c.Query("user_id"))
-	if userID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id is required"})
+	userID, ok := requiredUserIDFromQuery(c)
+	if !ok {
 		return
 	}
 
@@ -90,9 +95,8 @@ func (h *WeightHandler) GetLatestWeightEntry(c *gin.Context) {
 }
 
 func (h *WeightHandler) GetRecentWeightEntries(c *gin.Context) {
-	userID := strings.TrimSpace(c.Query("user_id"))
-	if userID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id is required"})
+	userID, ok := requiredUserIDFromQuery(c)
+	if !ok {
 		return
 	}
 

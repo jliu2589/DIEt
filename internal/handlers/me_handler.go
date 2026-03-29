@@ -17,9 +17,8 @@ func NewMeHandler(service *userstateservice.Service) *MeHandler {
 }
 
 func (h *MeHandler) GetMe(c *gin.Context) {
-	userID := strings.TrimSpace(c.Query("user_id"))
-	if userID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id is required"})
+	userID, ok := requiredUserIDFromQuery(c)
+	if !ok {
 		return
 	}
 
