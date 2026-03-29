@@ -89,6 +89,7 @@ func (s *Service) ProcessTextMeal(ctx context.Context, input ProcessTextMealInpu
 	if eatenAt.IsZero() {
 		eatenAt = time.Now().UTC()
 	}
+	eatenAt = eatenAt.UTC()
 	if strings.TrimSpace(input.Source) == "" {
 		input.Source = "text"
 	}

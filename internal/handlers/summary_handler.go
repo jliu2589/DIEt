@@ -81,6 +81,8 @@ func (h *SummaryHandler) GetDailySummary(c *gin.Context) {
 		return
 	}
 
+	responseDate := summaryDate.Format("2006-01-02")
+
 	summary, err := h.repo.GetByUserIDAndDate(c.Request.Context(), userID, summaryDate)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch daily summary"})
@@ -88,11 +90,11 @@ func (h *SummaryHandler) GetDailySummary(c *gin.Context) {
 	}
 
 	if summary == nil {
-		c.JSON(http.StatusOK, newDailySummaryResponse(userID, dateRaw, models.NutritionFields{}))
+		c.JSON(http.StatusOK, newDailySummaryResponse(userID, responseDate, models.NutritionFields{}))
 		return
 	}
 
-	c.JSON(http.StatusOK, newDailySummaryResponse(userID, dateRaw, summary.NutritionFields))
+	c.JSON(http.StatusOK, newDailySummaryResponse(userID, responseDate, summary.NutritionFields))
 }
 
 func newDailySummaryResponse(userID, date string, n models.NutritionFields) dailySummaryResponse {

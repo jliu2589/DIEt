@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"diet/internal/models"
 	"diet/internal/repositories"
@@ -83,6 +84,6 @@ func toLatestWeightState(entry *models.WeightEntry) *LatestWeightState {
 	return &LatestWeightState{
 		Weight:   entry.Weight,
 		Unit:     entry.Unit,
-		LoggedAt: entry.LoggedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
+		LoggedAt: entry.LoggedAt.UTC().Format(time.RFC3339),
 	}
 }
