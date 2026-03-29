@@ -9,11 +9,16 @@ import (
 
 	"diet/internal/models"
 	"diet/internal/repositories"
+	inputclassifier "diet/internal/services/input_classifier"
 	openaisvc "diet/internal/services/openai"
 )
 
 type Analyzer interface {
 	AnalyzeMealText(ctx context.Context, rawText string) (openaisvc.MealTextAnalysis, error)
+}
+
+type InputClassifier interface {
+	Classify(rawText string) string
 }
 
 type Service struct {
@@ -22,6 +27,7 @@ type Service struct {
 	mealMemoryRepo   *repositories.MealMemoryRepository
 	dailySummaryRepo *repositories.DailyNutritionSummaryRepository
 	mealTextAnalyzer Analyzer
+	classifier       InputClassifier
 }
 
 const (
@@ -38,8 +44,13 @@ type ProcessTextMealInput struct {
 }
 
 type ProcessTextMealResult struct {
+	Intent           string                 `json:"intent"`
+	Logged           bool                   `json:"logged"`
+	Message          string                 `json:"message"`
 	MealEventID      int64                  `json:"meal_event_id"`
 	Source           string                 `json:"source"`
+	ProcessedFrom    string                 `json:"processed_from"`
+	EatenAt          time.Time              `json:"eaten_at"`
 	CanonicalName    string                 `json:"canonical_name"`
 	ConfidenceScore  *float64               `json:"confidence_score,omitempty"`
 	Assumptions      []string               `json:"assumptions,omitempty"`
@@ -59,12 +70,20 @@ type RecentMealResult struct {
 	Source        string    `json:"source"`
 }
 
+type EditMealTimeResult struct {
+	MealEventID   int64     `json:"meal_event_id"`
+	CanonicalName string    `json:"canonical_name"`
+	EatenAt       time.Time `json:"eaten_at"`
+	TimeSource    string    `json:"time_source"`
+}
+
 func NewService(
 	mealEventsRepo *repositories.MealEventsRepository,
 	mealAnalysisRepo *repositories.MealAnalysisRepository,
 	mealMemoryRepo *repositories.MealMemoryRepository,
 	dailySummaryRepo *repositories.DailyNutritionSummaryRepository,
 	mealTextAnalyzer Analyzer,
+	classifier InputClassifier,
 ) *Service {
 	return &Service{
 		mealEventsRepo:   mealEventsRepo,
@@ -72,6 +91,7 @@ func NewService(
 		mealMemoryRepo:   mealMemoryRepo,
 		dailySummaryRepo: dailySummaryRepo,
 		mealTextAnalyzer: mealTextAnalyzer,
+		classifier:       classifier,
 	}
 }
 
@@ -82,11 +102,30 @@ func (s *Service) ProcessTextMeal(ctx context.Context, input ProcessTextMealInpu
 	if strings.TrimSpace(input.RawText) == "" {
 		return nil, fmt.Errorf("raw_text is required")
 	}
+	intent := inputclassifier.IntentMealLog
+	if s.classifier != nil {
+		intent = s.classifier.Classify(input.RawText)
+	}
+	if intent != inputclassifier.IntentMealLog {
+		return &ProcessTextMealResult{
+			Intent:  intent,
+			Logged:  false,
+			Message: nonMealIntentMessage(intent),
+		}, nil
+	}
 
 	eatenAt := input.EatenAt
+	timeSource := "explicit"
 	if eatenAt.IsZero() {
-		eatenAt = time.Now().UTC()
+		if parsedEatenAt, ok := parseEatenAtFromText(input.RawText, time.Now().UTC()); ok {
+			eatenAt = parsedEatenAt
+			timeSource = "explicit"
+		} else {
+			eatenAt = time.Now().UTC()
+			timeSource = "default_now"
+		}
 	}
+	eatenAt = eatenAt.UTC()
 	if strings.TrimSpace(input.Source) == "" {
 		input.Source = "text"
 	}
@@ -98,7 +137,9 @@ func (s *Service) ProcessTextMeal(ctx context.Context, input ProcessTextMealInpu
 		SourceMessageID:  input.SourceMessageID,
 		EventType:        "text",
 		RawText:          &rawText,
+		LoggedAt:         time.Now().UTC(),
 		EatenAt:          eatenAt,
+		TimeSource:       timeSource,
 		ProcessingStatus: "pending",
 	})
 	if err != nil {
@@ -153,6 +194,34 @@ func (s *Service) GetRecentMeals(ctx context.Context, userID string, limit int) 
 	return out, nil
 }
 
+func (s *Service) EditMealTime(ctx context.Context, mealEventID int64, userID string, eatenAt time.Time) (*EditMealTimeResult, error) {
+	if mealEventID <= 0 {
+		return nil, fmt.Errorf("meal_event_id must be greater than 0")
+	}
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, fmt.Errorf("user_id is required")
+	}
+	if eatenAt.IsZero() {
+		return nil, fmt.Errorf("eaten_at is required")
+	}
+
+	updated, err := s.mealEventsRepo.UpdateEatenAtByIDAndUserID(ctx, mealEventID, userID, eatenAt.UTC())
+	if err != nil {
+		return nil, fmt.Errorf("edit meal time: %w", err)
+	}
+	if updated == nil {
+		return nil, nil
+	}
+
+	return &EditMealTimeResult{
+		MealEventID:   updated.MealEventID,
+		CanonicalName: updated.CanonicalName,
+		EatenAt:       updated.EatenAt,
+		TimeSource:    updated.TimeSource,
+	}, nil
+}
+
 func (s *Service) processFromCache(ctx context.Context, event *models.MealEvent, cached *models.MealMemory) (*ProcessTextMealResult, error) {
 	analysis := models.MealAnalysis{
 		MealEventID:     event.ID,
@@ -178,8 +247,13 @@ func (s *Service) processFromCache(ctx context.Context, event *models.MealEvent,
 	}
 
 	result := &ProcessTextMealResult{
+		Intent:           inputclassifier.IntentMealLog,
+		Logged:           true,
+		Message:          "Logged your meal.",
 		MealEventID:      event.ID,
-		Source:           "cache",
+		Source:           event.Source,
+		ProcessedFrom:    "cache",
+		EatenAt:          event.EatenAt,
 		CanonicalName:    cached.CanonicalName,
 		ConfidenceScore:  cached.ConfidenceScore,
 		Nutrition:        cached.NutritionFields,
@@ -252,8 +326,13 @@ func (s *Service) processWithOpenAI(ctx context.Context, event *models.MealEvent
 	}
 
 	return &ProcessTextMealResult{
+		Intent:           inputclassifier.IntentMealLog,
+		Logged:           true,
+		Message:          "Logged your meal.",
 		MealEventID:      event.ID,
-		Source:           "openai",
+		Source:           event.Source,
+		ProcessedFrom:    "openai",
+		EatenAt:          event.EatenAt,
 		CanonicalName:    openAIResult.CanonicalName,
 		ConfidenceScore:  openAIResult.ConfidenceScore,
 		Assumptions:      openAIResult.Assumptions,
@@ -261,6 +340,19 @@ func (s *Service) processWithOpenAI(ctx context.Context, event *models.MealEvent
 		Nutrition:        nutrition,
 		DailySummaryDate: summaryDate.Format("2006-01-02"),
 	}, nil
+}
+
+func nonMealIntentMessage(intent string) string {
+	switch intent {
+	case inputclassifier.IntentWeightLog:
+		return "I detected a weight log, so I didn’t save this as a meal."
+	case inputclassifier.IntentRecommendationRequest:
+		return "I detected a recommendation request, so I didn’t save this as a meal."
+	case inputclassifier.IntentGeneralChat:
+		return "I detected general chat, so I didn’t save this as a meal."
+	default:
+		return "I couldn’t confidently detect a meal log, so nothing was saved."
+	}
 }
 
 func (s *Service) updateDailySummary(ctx context.Context, userID string, summaryDate time.Time, delta models.NutritionFields) (*models.DailyNutritionSummary, error) {

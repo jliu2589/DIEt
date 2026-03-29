@@ -54,7 +54,17 @@ Server starts on `:$PORT`.
 ## HTTP Routes
 - `GET /health`
 - `POST /v1/meals`
+- `POST /v1/chat`
+- `GET /v1/meals/recent?user_id=<id>&limit=20`
+- `PATCH /v1/meals/:mealEventID/time`
 - `GET /v1/daily-summary?user_id=<id>&date=YYYY-MM-DD`
+- `GET /v1/settings?user_id=<id>`
+- `PUT /v1/settings`
+- `POST /v1/weight`
+- `GET /v1/weight/latest?user_id=<id>`
+- `GET /v1/weight/recent?user_id=<id>&limit=30`
+- `GET /v1/trends?user_id=<id>&range=7d|30d|90d|1y`
+- `GET /v1/me?user_id=<id>`
 - `POST /v1/integrations/telegram/webhook/:secretPath`
 
 ## Example: `POST /v1/meals`
