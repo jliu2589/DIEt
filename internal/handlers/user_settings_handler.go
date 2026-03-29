@@ -53,7 +53,7 @@ func (h *UserSettingsHandler) GetUserSettings(c *gin.Context) {
 	}
 
 	if settings == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "user settings not found"})
+		c.JSON(http.StatusOK, toUserSettingsResponse(userID, nil, nil, nil, nil, nil, "kg"))
 		return
 	}
 
