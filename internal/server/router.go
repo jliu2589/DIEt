@@ -21,6 +21,7 @@ type Dependencies struct {
 	MeHandler       *handlers.MeHandler
 	ChatHandler     *handlers.ChatHandler
 	Recommendations *handlers.RecommendationsHandler
+	Dashboard       *handlers.DashboardHandler
 }
 
 func NewRouter(deps Dependencies) *gin.Engine {
@@ -44,6 +45,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	r.PATCH("/v1/meals/:mealEventID/time", deps.MealHandler.EditMealTime)
 	r.GET("/v1/daily-summary", deps.SummaryHandler.GetDailySummary)
 	r.GET("/v1/recommendations", deps.Recommendations.GetRecommendations)
+	r.GET("/v1/dashboard/today", deps.Dashboard.GetToday)
 	r.GET("/v1/settings", deps.UserSettings.GetUserSettings)
 	r.PUT("/v1/settings", deps.UserSettings.UpsertUserSettings)
 	r.POST("/v1/weight", deps.WeightHandler.CreateWeightEntry)

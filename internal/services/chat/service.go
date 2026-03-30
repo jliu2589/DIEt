@@ -49,11 +49,17 @@ type Response struct {
 }
 
 type MealResult struct {
-	MealEventID   int64     `json:"meal_event_id"`
-	CanonicalName string    `json:"canonical_name"`
-	LoggedAt      time.Time `json:"logged_at"`
-	EatenAt       time.Time `json:"eaten_at"`
-	TimeSource    string    `json:"time_source"`
+	MealEventID     int64     `json:"meal_event_id"`
+	CanonicalName   string    `json:"canonical_name"`
+	LoggedAt        time.Time `json:"logged_at"`
+	EatenAt         time.Time `json:"eaten_at"`
+	TimeSource      string    `json:"time_source"`
+	Source          string    `json:"source"`
+	ConfidenceScore *float64  `json:"confidence_score,omitempty"`
+	CaloriesKcal    *float64  `json:"calories_kcal,omitempty"`
+	ProteinG        *float64  `json:"protein_g,omitempty"`
+	CarbohydrateG   *float64  `json:"carbohydrate_g,omitempty"`
+	FatG            *float64  `json:"fat_g,omitempty"`
 }
 
 type WeightResult struct {
@@ -104,11 +110,17 @@ func (s *Service) HandleMessage(ctx context.Context, req Request) (*Response, er
 			Intent:        intent,
 			MessageToUser: "Logged your meal.",
 			MealResult: &MealResult{
-				MealEventID:   mealResult.MealEventID,
-				CanonicalName: mealResult.CanonicalName,
-				LoggedAt:      mealResult.LoggedAt.UTC(),
-				EatenAt:       mealResult.EatenAt.UTC(),
-				TimeSource:    mealResult.TimeSource,
+				MealEventID:     mealResult.MealEventID,
+				CanonicalName:   mealResult.CanonicalName,
+				LoggedAt:        mealResult.LoggedAt.UTC(),
+				EatenAt:         mealResult.EatenAt.UTC(),
+				TimeSource:      mealResult.TimeSource,
+				Source:          mealResult.Source,
+				ConfidenceScore: mealResult.ConfidenceScore,
+				CaloriesKcal:    mealResult.Nutrition.CaloriesKcal,
+				ProteinG:        mealResult.Nutrition.ProteinG,
+				CarbohydrateG:   mealResult.Nutrition.CarbohydrateG,
+				FatG:            mealResult.Nutrition.FatG,
 			},
 		}, nil
 	case inputclassifier.IntentWeightLog:

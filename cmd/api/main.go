@@ -102,6 +102,7 @@ func main() {
 		ChatHandler:     handlers.NewChatHandler(chatSvc, repos.IdempotencyKeys),
 		SummaryHandler:  handlers.NewSummaryHandler(repos.DailyNutritionSummary),
 		Recommendations: handlers.NewRecommendationsHandler(recommendationsSvc),
+		Dashboard:       handlers.NewDashboardHandler(repos.DailyNutritionSummary, mealSvc, recommendationsSvc),
 		UserSettings:    handlers.NewUserSettingsHandler(userSettingsSvc),
 		WeightHandler:   handlers.NewWeightHandler(weightSvc),
 		TrendsHandler:   handlers.NewTrendsHandler(trendsSvc),
