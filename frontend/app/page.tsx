@@ -16,9 +16,10 @@ const chatMessages = [
 ] as const;
 
 const todaysMeals = [
-  { id: 1, name: "Greek Yogurt + Berries", time: "8:10 AM", calories: 320, protein: 28 },
-  { id: 2, name: "Salmon Rice Bowl", time: "12:42 PM", calories: 610, protein: 41 },
-  { id: 3, name: "Almonds + Banana", time: "3:20 PM", calories: 210, protein: 9 }
+  { id: 1, name: "Greek Yogurt + Berries", time: "8:10 AM", calories: 320, protein: 28, carbs: 32, fat: 9 },
+  { id: 2, name: "Salmon Rice Bowl", time: "12:42 PM", calories: 610, protein: 41, carbs: 58, fat: 23 },
+  { id: 3, name: "Almonds + Banana", time: "3:20 PM", calories: 210, protein: 9, carbs: 24, fat: 11 },
+  { id: 4, name: "Chicken & Avocado Wrap", time: "7:05 PM", calories: 470, protein: 36, carbs: 34, fat: 21 }
 ];
 
 const weeklyTrend = [68, 72, 65, 74, 70, 78, 76];
@@ -123,15 +124,22 @@ export default function HomePage() {
           {todaysMeals.map((meal) => (
             <article
               key={meal.id}
-              className="rounded-xl border border-stone-200 bg-white px-3 py-3 text-sm sm:flex sm:items-center sm:justify-between"
+              className="rounded-xl border border-stone-200 bg-white/95 px-3 py-3 shadow-sm sm:px-4"
             >
-              <div>
-                <p className="font-medium text-stone-900">{meal.name}</p>
-                <p className="text-xs text-stone-500">{meal.time}</p>
+              <div className="sm:flex sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-[0.08em] text-stone-500">{meal.time}</p>
+                  <p className="mt-1 font-medium text-stone-900">{meal.name}</p>
+                </div>
+                <p className="mt-2 inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800 sm:mt-0">
+                  {meal.calories} kcal
+                </p>
               </div>
-              <div className="mt-2 flex gap-3 text-xs text-stone-600 sm:mt-0">
-                <span>{meal.calories} kcal</span>
-                <span>{meal.protein}g protein</span>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                <MacroPill label="Protein" value={`${meal.protein}g`} />
+                <MacroPill label="Carbs" value={`${meal.carbs}g`} />
+                <MacroPill label="Fat" value={`${meal.fat}g`} />
+                <MacroPill label="Calories" value={`${meal.calories}`} />
               </div>
             </article>
           ))}
@@ -154,6 +162,15 @@ export default function HomePage() {
         </div>
       </SectionCard>
     </main>
+  );
+}
+
+function MacroPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-stone-200 bg-stone-50 px-2.5 py-2">
+      <p className="text-[10px] uppercase tracking-[0.08em] text-stone-500">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-stone-800">{value}</p>
+    </div>
   );
 }
 
