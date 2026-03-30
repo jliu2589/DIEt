@@ -23,14 +23,6 @@ type DailyNutritionSummaryRow struct {
 	FatG          *float64
 }
 
-type DailyNutritionSummaryRow struct {
-	SummaryDate   time.Time
-	CaloriesKcal  *float64
-	ProteinG      *float64
-	CarbohydrateG *float64
-	FatG          *float64
-}
-
 func NewDailyNutritionSummaryRepository(pool *pgxpool.Pool) *DailyNutritionSummaryRepository {
 	return &DailyNutritionSummaryRepository{db: pool}
 }

@@ -51,21 +51,23 @@ type ProcessTextMealInput struct {
 }
 
 type ProcessTextMealResult struct {
-	Intent           string                 `json:"intent"`
-	Logged           bool                   `json:"logged"`
-	Message          string                 `json:"message"`
-	MealEventID      int64                  `json:"meal_event_id"`
-	Source           string                 `json:"source"`
-	ProcessedFrom    string                 `json:"processed_from"`
-	LoggedAt         time.Time              `json:"logged_at"`
-	EatenAt          time.Time              `json:"eaten_at"`
-	TimeSource       string                 `json:"time_source"`
-	CanonicalName    string                 `json:"canonical_name"`
-	ConfidenceScore  *float64               `json:"confidence_score,omitempty"`
-	Assumptions      []string               `json:"assumptions,omitempty"`
-	Items            []models.MealItem      `json:"items,omitempty"`
-	Nutrition        models.NutritionFields `json:"nutrition"`
-	DailySummaryDate string                 `json:"daily_summary_date"`
+	Intent            string                 `json:"intent"`
+	Logged            bool                   `json:"logged"`
+	Message           string                 `json:"message"`
+	MealEventID       int64                  `json:"meal_event_id"`
+	Source            string                 `json:"source"`
+	ProcessedFrom     string                 `json:"processed_from"`
+	LoggedAt          time.Time              `json:"logged_at"`
+	EatenAt           time.Time              `json:"eaten_at"`
+	TimeSource        string                 `json:"time_source"`
+	CanonicalName     string                 `json:"canonical_name"`
+	ConfidenceScore   *float64               `json:"confidence_score,omitempty"`
+	Assumptions       []string               `json:"assumptions,omitempty"`
+	Items             []models.MealItem      `json:"items,omitempty"`
+	Nutrition         models.NutritionFields `json:"nutrition"`
+	DailySummaryDate  string                 `json:"daily_summary_date"`
+	MatchReason       *string                `json:"match_reason,omitempty"`
+	TokenOverlapScore *float64               `json:"token_overlap_score,omitempty"`
 }
 
 type RecentMealResult struct {
@@ -419,18 +421,23 @@ func (s *Service) processFromReusableDatabase(ctx context.Context, event *models
 		return nil, nil
 	}
 
+	matchReason := "exact_fingerprint_match"
+	tokenOverlap := 1.0
+
 	reusableMeal, err := s.mealsRepo.GetByFingerprintHash(ctx, fingerprint)
 	if err != nil {
 		return nil, fmt.Errorf("lookup reusable meal by fingerprint: %w", err)
 	}
 	if reusableMeal == nil {
-		matched, matchConfidence, err := s.findReusableMealMatch(ctx, rawText)
+		matched, reason, overlap, err := s.findReusableMealMatch(ctx, rawText)
 		if err != nil {
 			return nil, err
 		}
-		if matched == nil || matchConfidence < reusableMatchThreshold {
+		if matched == nil || overlap < reusableMatchThreshold {
 			return nil, nil
 		}
+		matchReason = reason
+		tokenOverlap = overlap
 		reusableMeal, err = s.mealsRepo.GetByID(ctx, matched.ID)
 		if err != nil {
 			return nil, fmt.Errorf("get matched reusable meal by id: %w", err)
@@ -506,64 +513,74 @@ func (s *Service) processFromReusableDatabase(ctx context.Context, event *models
 		return nil, err
 	}
 
-	return &ProcessTextMealResult{
-		Intent:           inputclassifier.IntentMealLog,
-		Logged:           true,
-		Message:          "Logged your meal.",
-		MealEventID:      event.ID,
-		Source:           event.Source,
-		ProcessedFrom:    "reusable_db",
-		LoggedAt:         event.LoggedAt,
-		EatenAt:          event.EatenAt,
-		TimeSource:       event.TimeSource,
-		CanonicalName:    reusableMeal.CanonicalName,
-		ConfidenceScore:  reusableMeal.ConfidenceScore,
-		Items:            analysisItems,
-		Nutrition:        total,
-		DailySummaryDate: summaryDate.Format("2006-01-02"),
-	}, nil
+		return &ProcessTextMealResult{
+			Intent:           inputclassifier.IntentMealLog,
+			Logged:           true,
+			Message:          "Logged your meal.",
+			MealEventID:      event.ID,
+			Source:           event.Source,
+			ProcessedFrom:    "reusable_db",
+			LoggedAt:         event.LoggedAt,
+			EatenAt:          event.EatenAt,
+			TimeSource:       event.TimeSource,
+			CanonicalName:    reusableMeal.CanonicalName,
+			ConfidenceScore:  reusableMeal.ConfidenceScore,
+			Items:            analysisItems,
+			Nutrition:        total,
+			DailySummaryDate:  summaryDate.Format("2006-01-02"),
+			MatchReason:       &matchReason,
+			TokenOverlapScore: &tokenOverlap,
+		}, nil
 }
 
-func (s *Service) findReusableMealMatch(ctx context.Context, rawText string) (*repositories.MealCandidate, float64, error) {
+func (s *Service) findReusableMealMatch(ctx context.Context, rawText string) (*repositories.MealCandidate, string, float64, error) {
 	if s.mealsRepo == nil {
-		return nil, 0, nil
+		return nil, "no_repository", 0, nil
 	}
 
 	candidates, err := s.mealsRepo.ListCandidates(ctx, defaultReusableMealSearch)
 	if err != nil {
-		return nil, 0, fmt.Errorf("list reusable meal candidates: %w", err)
+		return nil, "candidate_query_error", 0, fmt.Errorf("list reusable meal candidates: %w", err)
 	}
 	if len(candidates) == 0 {
-		return nil, 0, nil
+		return nil, "no_candidates", 0, nil
 	}
 
 	normalizedText := NormalizeText(rawText)
+	inputTokens := CanonicalTokens(rawText)
+	if normalizedText == "" || len(inputTokens) == 0 {
+		return nil, "empty_input", 0, nil
+	}
+
 	bestScore := 0.0
+	bestReason := "no_match"
 	var best *repositories.MealCandidate
 	for i := range candidates {
 		name := NormalizeText(candidates[i].CanonicalName)
 		if name == "" {
 			continue
 		}
-		score := 0.0
-		switch {
-		case normalizedText == name:
-			score = 1.0
-		case strings.Contains(normalizedText, name):
-			score = 0.9
-		case strings.Contains(name, normalizedText):
-			score = 0.85
-		}
-		if candidates[i].ConfidenceScore != nil {
-			score = (score + *candidates[i].ConfidenceScore) / 2
-		}
-		if score > bestScore {
-			bestScore = score
+		if normalizedText == name {
+			score := 1.0
 			best = &candidates[i]
+			bestScore = score
+			bestReason = "canonical_name_match"
+			break
+		}
+
+		candidateTokens := CanonicalTokens(candidates[i].CanonicalName)
+		overlap := TokenOverlapScore(inputTokens, candidateTokens)
+		if overlap > bestScore {
+			best = &candidates[i]
+			bestScore = overlap
+			bestReason = "token_overlap_score"
 		}
 	}
 
-	return best, bestScore, nil
+	if best == nil {
+		return nil, bestReason, 0, nil
+	}
+	return best, bestReason, bestScore, nil
 }
 
 func (s *Service) maybeSaveReusableMealTemplate(ctx context.Context, fingerprint string, canonicalName string, confidenceScore *float64, items []models.MealItem) error {
@@ -590,18 +607,19 @@ func (s *Service) maybeSaveReusableMealTemplate(ctx context.Context, fingerprint
 		return nil
 	}
 
-	if existing, err := s.mealsRepo.GetByFingerprintHash(ctx, structureHash); err != nil {
-		return fmt.Errorf("lookup reusable meal by structure fingerprint: %w", err)
+	if existing, err := s.mealsRepo.GetByStructureSignature(ctx, structureHash); err != nil {
+		return fmt.Errorf("lookup reusable meal by structure signature: %w", err)
 	} else if existing != nil {
 		return nil
 	}
 
 	sourceType := "canonical_structure"
 	mealRow, err := s.mealsRepo.Create(ctx, models.Meal{
-		CanonicalName:   canonicalName,
-		FingerprintHash: &structureHash,
-		SourceType:      &sourceType,
-		ConfidenceScore: confidenceScore,
+		CanonicalName:      canonicalName,
+		FingerprintHash:    &fingerprint,
+		StructureSignature: &structureHash,
+		SourceType:         &sourceType,
+		ConfidenceScore:    confidenceScore,
 	})
 	if err != nil {
 		return fmt.Errorf("create reusable meal template: %w", err)

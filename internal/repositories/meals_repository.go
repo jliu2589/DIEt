@@ -17,10 +17,11 @@ type MealsRepository struct {
 }
 
 type MealCandidate struct {
-	ID              int64
-	CanonicalName   string
-	FingerprintHash *string
-	ConfidenceScore *float64
+	ID                 int64
+	CanonicalName      string
+	FingerprintHash    *string
+	StructureSignature *string
+	ConfidenceScore    *float64
 }
 
 func NewMealsRepository(pool *pgxpool.Pool) *MealsRepository {
@@ -41,18 +42,21 @@ func (r *MealsRepository) Create(ctx context.Context, in models.Meal) (*models.M
 		INSERT INTO meals (
 			canonical_name,
 			fingerprint_hash,
+			structure_signature,
 			source_type,
 			confidence_score
 		) VALUES (
 			$1,
 			$2,
 			$3,
-			$4
+			$4,
+			$5
 		)
 		RETURNING
 			id,
 			canonical_name,
 			fingerprint_hash,
+			structure_signature,
 			source_type,
 			confidence_score,
 			created_at,
@@ -60,10 +64,11 @@ func (r *MealsRepository) Create(ctx context.Context, in models.Meal) (*models.M
 	`
 
 	var out models.Meal
-	if err := r.db.QueryRow(ctx, q, name, in.FingerprintHash, in.SourceType, in.ConfidenceScore).Scan(
+	if err := r.db.QueryRow(ctx, q, name, in.FingerprintHash, in.StructureSignature, in.SourceType, in.ConfidenceScore).Scan(
 		&out.ID,
 		&out.CanonicalName,
 		&out.FingerprintHash,
+		&out.StructureSignature,
 		&out.SourceType,
 		&out.ConfidenceScore,
 		&out.CreatedAt,
@@ -85,6 +90,7 @@ func (r *MealsRepository) GetByID(ctx context.Context, id int64) (*models.Meal, 
 			id,
 			canonical_name,
 			fingerprint_hash,
+			structure_signature,
 			source_type,
 			confidence_score,
 			created_at,
@@ -98,6 +104,7 @@ func (r *MealsRepository) GetByID(ctx context.Context, id int64) (*models.Meal, 
 		&out.ID,
 		&out.CanonicalName,
 		&out.FingerprintHash,
+		&out.StructureSignature,
 		&out.SourceType,
 		&out.ConfidenceScore,
 		&out.CreatedAt,
@@ -123,6 +130,7 @@ func (r *MealsRepository) GetByFingerprintHash(ctx context.Context, fingerprintH
 			id,
 			canonical_name,
 			fingerprint_hash,
+			structure_signature,
 			source_type,
 			confidence_score,
 			created_at,
@@ -136,6 +144,7 @@ func (r *MealsRepository) GetByFingerprintHash(ctx context.Context, fingerprintH
 		&out.ID,
 		&out.CanonicalName,
 		&out.FingerprintHash,
+		&out.StructureSignature,
 		&out.SourceType,
 		&out.ConfidenceScore,
 		&out.CreatedAt,
@@ -145,6 +154,46 @@ func (r *MealsRepository) GetByFingerprintHash(ctx context.Context, fingerprintH
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get meal by fingerprint_hash: %w", err)
+	}
+
+	return &out, nil
+}
+
+func (r *MealsRepository) GetByStructureSignature(ctx context.Context, structureSignature string) (*models.Meal, error) {
+	sig := strings.TrimSpace(structureSignature)
+	if sig == "" {
+		return nil, fmt.Errorf("structure_signature is required")
+	}
+
+	const q = `
+		SELECT
+			id,
+			canonical_name,
+			fingerprint_hash,
+			structure_signature,
+			source_type,
+			confidence_score,
+			created_at,
+			updated_at
+		FROM meals
+		WHERE structure_signature = $1
+	`
+
+	var out models.Meal
+	if err := r.db.QueryRow(ctx, q, sig).Scan(
+		&out.ID,
+		&out.CanonicalName,
+		&out.FingerprintHash,
+		&out.StructureSignature,
+		&out.SourceType,
+		&out.ConfidenceScore,
+		&out.CreatedAt,
+		&out.UpdatedAt,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get meal by structure_signature: %w", err)
 	}
 
 	return &out, nil
@@ -160,6 +209,7 @@ func (r *MealsRepository) ListCandidates(ctx context.Context, limit int) ([]Meal
 			id,
 			canonical_name,
 			fingerprint_hash,
+			structure_signature,
 			confidence_score
 		FROM meals
 		ORDER BY updated_at DESC, id DESC
@@ -175,7 +225,7 @@ func (r *MealsRepository) ListCandidates(ctx context.Context, limit int) ([]Meal
 	out := make([]MealCandidate, 0)
 	for rows.Next() {
 		var c MealCandidate
-		if err := rows.Scan(&c.ID, &c.CanonicalName, &c.FingerprintHash, &c.ConfidenceScore); err != nil {
+		if err := rows.Scan(&c.ID, &c.CanonicalName, &c.FingerprintHash, &c.StructureSignature, &c.ConfidenceScore); err != nil {
 			return nil, fmt.Errorf("scan meal candidate row: %w", err)
 		}
 		out = append(out, c)
