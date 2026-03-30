@@ -19,6 +19,17 @@ const todaysMeals = [
 
 const weeklyTrend = [68, 72, 65, 74, 70, 78, 76];
 
+function displayNumber(value: number | null | undefined, suffix = "") {
+  if (value == null) {
+    return "—";
+  }
+  return `${value}${suffix}`;
+}
+
+function summaryTotals(summary: DailySummaryResponse) {
+  return summary.totals ?? summary;
+}
+
 export default function HomePage() {
   return (
     <main className="space-y-5 pb-8">
