@@ -14,9 +14,16 @@ import (
 	"diet/internal/handlers"
 	"diet/internal/repositories"
 	"diet/internal/server"
+	chatservice "diet/internal/services/chat"
+	inputclassifierservice "diet/internal/services/input_classifier"
 	mealservice "diet/internal/services/meal"
 	openaiservice "diet/internal/services/openai"
+	recommendationsservice "diet/internal/services/recommendations"
 	telegramservice "diet/internal/services/telegram"
+	trendsservice "diet/internal/services/trends"
+	usersettingsservice "diet/internal/services/user_settings"
+	userstateservice "diet/internal/services/user_state"
+	weightservice "diet/internal/services/weight"
 )
 
 func main() {
@@ -47,36 +54,81 @@ func main() {
 	repos := repositories.New(pool)
 
 	// 4) OpenAI client
-	openAIClient := openaiservice.NewClient(cfg.OpenAIAPIKey, "")
+	var openAIClient *openaiservice.Client
+	if cfg.EnableOpenAIFallback {
+		openAIClient = openaiservice.NewClient(cfg.OpenAIAPIKey, "")
+	}
 
 	// 5) Meal service
+	classifierSvc := inputclassifierservice.NewService()
 	mealSvc := mealservice.NewService(
 		repos.MealEvents,
 		repos.MealAnalysis,
 		repos.MealMemory,
 		repos.DailyNutritionSummary,
+		repos.Meals,
+		repos.MealItems,
+		repos.CanonicalFoods,
+		repos.TxManager,
 		openAIClient,
+		classifierSvc,
 	)
 
-	// 6) Telegram bot client
-	telegramBotClient := telegramservice.NewBotClient(cfg.TelegramBotToken)
+	// 7) User settings service
+	userSettingsSvc := usersettingsservice.NewService(repos.UserSettings)
 
-	// 7) Telegram service
-	telegramSvc := telegramservice.NewService(mealSvc, telegramBotClient)
-
-	// 8) Handlers + 9) Gin router
-	router := server.NewRouter(server.Dependencies{
-		HealthHandler:  handlers.NewHealthHandler(),
-		MealHandler:    handlers.NewMealHandler(mealSvc),
-		SummaryHandler: handlers.NewSummaryHandler(repos.DailyNutritionSummary),
-		TelegramHandler: handlers.NewTelegramHandler(
+	// 8) Telegram service (optional)
+	var telegramHandler *handlers.TelegramHandler
+	if cfg.EnableTelegramIntegration {
+		telegramBotClient := telegramservice.NewBotClient(cfg.TelegramBotToken)
+		telegramSvc := telegramservice.NewService(mealSvc, telegramBotClient)
+		telegramHandler = handlers.NewTelegramHandler(
 			cfg.TelegramWebhookSecretPath,
 			cfg.TelegramWebhookSecretToken,
 			telegramSvc,
-		),
+		)
+	}
+
+	// 9) Weight service
+	weightSvc := weightservice.NewService(repos.WeightEntries)
+
+	// 10) Trends service
+	trendsSvc := trendsservice.NewService(repos.WeightEntries, repos.DailyNutritionSummary)
+
+	// 11) User state service
+	userStateSvc := userstateservice.NewService(repos.UserSettings, repos.WeightEntries)
+
+	// 12) Chat routing service
+	chatSvc := chatservice.NewService(classifierSvc, mealSvc, weightSvc)
+
+	// 13) Recommendations service
+	recommendationsSvc := recommendationsservice.NewService(
+		repos.UserSettings,
+		repos.DailyNutritionSummary,
+		repos.MealMemory,
+		repos.Meals,
+		repos.MealItems,
+		repos.CanonicalFoods,
+	)
+
+	// 14) Handlers + 15) Gin router
+	router := server.NewRouter(server.Dependencies{
+		HealthHandler:   handlers.NewHealthHandler(),
+		MealHandler:     handlers.NewMealHandler(mealSvc, repos.IdempotencyKeys),
+		ChatHandler:     handlers.NewChatHandler(chatSvc, repos.IdempotencyKeys),
+		SummaryHandler:  handlers.NewSummaryHandler(repos.DailyNutritionSummary),
+		Recommendations: handlers.NewRecommendationsHandler(recommendationsSvc),
+		Dashboard:       handlers.NewDashboardHandler(repos.DailyNutritionSummary, mealSvc, recommendationsSvc),
+		Foods:           handlers.NewFoodsHandler(repos.CanonicalFoods),
+		ReusableMeals:   handlers.NewReusableMealsHandler(repos.Meals),
+		UserSettings:    handlers.NewUserSettingsHandler(userSettingsSvc),
+		WeightHandler:   handlers.NewWeightHandler(weightSvc),
+		TrendsHandler:   handlers.NewTrendsHandler(trendsSvc),
+		MeHandler:       handlers.NewMeHandler(userStateSvc),
+		TelegramHandler: telegramHandler,
 	})
 
-	// 10) HTTP server
+	// 16) HTTP server
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           router,
@@ -94,7 +146,12 @@ func main() {
 		closePool()
 	}()
 
-	log.Printf("api listening on :%s", cfg.Port)
+	log.Printf(
+		"api listening on :%s (openai_fallback=%t telegram_integration=%t)",
+		cfg.Port,
+		cfg.EnableOpenAIFallback,
+		cfg.EnableTelegramIntegration,
+	)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("http server: %v", err)
 	}
