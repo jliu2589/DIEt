@@ -3,6 +3,7 @@ package recommendations
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"math"
 	"sort"
 	"strings"
@@ -81,6 +82,7 @@ func NewService(
 }
 
 func (s *Service) GetForUserToday(ctx context.Context, userID string, now time.Time) (*Response, error) {
+	started := time.Now()
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
 		return nil, fmt.Errorf("user_id is required")
@@ -116,6 +118,7 @@ func (s *Service) GetForUserToday(ctx context.Context, userID string, now time.T
 
 	candidates, err := s.buildCandidates(ctx, caloriesRemaining, proteinRemaining)
 	if err != nil {
+		slog.Error("recommendations.generate_failed", "user_id", userID, "error", err)
 		return nil, fmt.Errorf("get recommendation candidates: %w", err)
 	}
 
@@ -135,12 +138,22 @@ func (s *Service) GetForUserToday(ctx context.Context, userID string, now time.T
 			response.MessageToUser = strings.TrimSpace(message)
 		}
 	}
+	slog.Info("recommendations.generated",
+		"user_id", userID,
+		"calories_remaining", caloriesRemaining,
+		"protein_remaining_g", proteinRemaining,
+		"items_count", len(response.Items),
+		"latency_ms", time.Since(started).Milliseconds(),
+	)
 
 	return response, nil
 }
 
 func (s *Service) buildCandidates(ctx context.Context, caloriesRemaining, proteinRemaining float64) ([]RecommendationItem, error) {
 	items := make([]RecommendationItem, 0, defaultCandidateLimit*3)
+	mealMemoryCount := 0
+	reusableCount := 0
+	canonicalCount := 0
 
 	if s.mealMemoryRepo != nil {
 		memoryCandidates, err := s.mealMemoryRepo.ListRecommendationCandidates(ctx, defaultCandidateLimit)
@@ -161,6 +174,7 @@ func (s *Service) buildCandidates(ctx context.Context, caloriesRemaining, protei
 				SourceID:            c.MealID,
 				RecommendationScore: recommendationScore(caloriesRemaining, proteinRemaining, cal, pro),
 			})
+			mealMemoryCount++
 		}
 	}
 
@@ -170,6 +184,7 @@ func (s *Service) buildCandidates(ctx context.Context, caloriesRemaining, protei
 			return nil, err
 		}
 		items = append(items, reusable...)
+		reusableCount = len(reusable)
 	}
 
 	if s.canonicalFoods != nil {
@@ -191,6 +206,7 @@ func (s *Service) buildCandidates(ctx context.Context, caloriesRemaining, protei
 				SourceID:            c.FoodID,
 				RecommendationScore: recommendationScore(caloriesRemaining, proteinRemaining, cal, pro),
 			})
+			canonicalCount++
 		}
 	}
 
@@ -208,6 +224,12 @@ func (s *Service) buildCandidates(ctx context.Context, caloriesRemaining, protei
 	if len(items) > defaultItemsLimit {
 		items = items[:defaultItemsLimit]
 	}
+	slog.Info("recommendations.candidate_path",
+		"meal_memory_candidates", mealMemoryCount,
+		"reusable_meal_candidates", reusableCount,
+		"canonical_food_candidates", canonicalCount,
+		"final_candidates", len(items),
+	)
 	return items, nil
 }
 

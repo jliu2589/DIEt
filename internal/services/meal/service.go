@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -145,6 +146,7 @@ func NewService(
 }
 
 func (s *Service) ProcessTextMeal(ctx context.Context, input ProcessTextMealInput) (*ProcessTextMealResult, error) {
+	started := time.Now()
 	if strings.TrimSpace(input.UserID) == "" {
 		return nil, fmt.Errorf("user_id is required")
 	}
@@ -152,10 +154,21 @@ func (s *Service) ProcessTextMeal(ctx context.Context, input ProcessTextMealInpu
 		return nil, fmt.Errorf("raw_text is required")
 	}
 	intent := inputclassifier.IntentMealLog
+	classifyStart := time.Now()
 	if s.classifier != nil {
 		intent = s.classifier.Classify(input.RawText)
 	}
+	slog.Info("meal.process.classified",
+		"user_id", input.UserID,
+		"intent", intent,
+		"classify_latency_ms", time.Since(classifyStart).Milliseconds(),
+	)
 	if intent != inputclassifier.IntentMealLog {
+		slog.Info("meal.process.skipped_non_meal",
+			"user_id", input.UserID,
+			"intent", intent,
+			"total_latency_ms", time.Since(started).Milliseconds(),
+		)
 		return &ProcessTextMealResult{
 			Intent:  intent,
 			Logged:  false,
@@ -184,10 +197,16 @@ func (s *Service) ProcessTextMeal(ctx context.Context, input ProcessTextMealInpu
 
 	cached, err := s.mealMemoryRepo.FindByFingerprintHash(ctx, fingerprint)
 	if err != nil {
+		slog.Error("meal.process.cache_lookup_failed", "user_id", input.UserID, "error", err)
 		return nil, fmt.Errorf("lookup meal memory: %w", err)
 	}
+	slog.Info("meal.process.matcher.cache_lookup",
+		"user_id", input.UserID,
+		"cache_hit", cached != nil,
+	)
 
 	if s.txManager == nil {
+		slog.Info("meal.process.persistence.tx_disabled", "user_id", input.UserID)
 		event, err := s.mealEventsRepo.Insert(ctx, models.MealEvent{
 			UserID:           input.UserID,
 			Source:           input.Source,
@@ -200,20 +219,27 @@ func (s *Service) ProcessTextMeal(ctx context.Context, input ProcessTextMealInpu
 			ProcessingStatus: "pending",
 		})
 		if err != nil {
+			slog.Error("meal.process.persistence.insert_event_failed", "user_id", input.UserID, "error", err)
 			return nil, fmt.Errorf("create meal_event: %w", err)
 		}
+		slog.Info("meal.process.persistence.event_created", "user_id", input.UserID, "meal_event_id", event.ID)
 		if cached != nil {
+			slog.Info("meal.process.matcher.path", "user_id", input.UserID, "meal_event_id", event.ID, "path", "cache")
 			return s.processFromCache(ctx, event, cached)
 		}
 		if reusableResult, err := s.processFromReusableDatabase(ctx, event, fingerprint, input.RawText); err != nil {
+			slog.Error("meal.process.matcher.reusable_failed", "user_id", input.UserID, "meal_event_id", event.ID, "error", err)
 			return nil, err
 		} else if reusableResult != nil {
+			slog.Info("meal.process.matcher.path", "user_id", input.UserID, "meal_event_id", event.ID, "path", "reusable_db", "total_latency_ms", time.Since(started).Milliseconds())
 			return reusableResult, nil
 		}
+		slog.Info("meal.process.matcher.path", "user_id", input.UserID, "meal_event_id", event.ID, "path", "openai")
 		return s.processWithOpenAI(ctx, event, fingerprint, input.RawText)
 	}
 
 	var out *ProcessTextMealResult
+	txStarted := time.Now()
 	if err := s.txManager.WithinTx(ctx, func(txRepos repositories.Repositories) error {
 		txSvc := s.withRepos(txRepos)
 		event, err := txSvc.mealEventsRepo.Insert(ctx, models.MealEvent{
@@ -228,26 +254,34 @@ func (s *Service) ProcessTextMeal(ctx context.Context, input ProcessTextMealInpu
 			ProcessingStatus: "pending",
 		})
 		if err != nil {
+			slog.Error("meal.process.persistence.insert_event_failed", "user_id", input.UserID, "error", err)
 			return fmt.Errorf("create meal_event: %w", err)
 		}
+		slog.Info("meal.process.persistence.event_created", "user_id", input.UserID, "meal_event_id", event.ID)
 
 		if cached != nil {
+			slog.Info("meal.process.matcher.path", "user_id", input.UserID, "meal_event_id", event.ID, "path", "cache")
 			out, err = txSvc.processFromCache(ctx, event, cached)
 			return err
 		}
 
 		if reusableResult, err := txSvc.processFromReusableDatabase(ctx, event, fingerprint, input.RawText); err != nil {
+			slog.Error("meal.process.matcher.reusable_failed", "user_id", input.UserID, "meal_event_id", event.ID, "error", err)
 			return err
 		} else if reusableResult != nil {
+			slog.Info("meal.process.matcher.path", "user_id", input.UserID, "meal_event_id", event.ID, "path", "reusable_db")
 			out = reusableResult
 			return nil
 		}
 
+		slog.Info("meal.process.matcher.path", "user_id", input.UserID, "meal_event_id", event.ID, "path", "openai")
 		out, err = txSvc.processWithOpenAI(ctx, event, fingerprint, input.RawText)
 		return err
 	}); err != nil {
+		slog.Error("meal.process.persistence.tx_failed", "user_id", input.UserID, "tx_latency_ms", time.Since(txStarted).Milliseconds(), "error", err)
 		return nil, err
 	}
+	slog.Info("meal.process.persistence.tx_succeeded", "user_id", input.UserID, "tx_latency_ms", time.Since(txStarted).Milliseconds(), "total_latency_ms", time.Since(started).Milliseconds())
 
 	return out, nil
 }
@@ -474,16 +508,20 @@ func (s *Service) processFromCache(ctx context.Context, event *models.MealEvent,
 	}
 
 	if err := s.mealAnalysisRepo.Insert(ctx, analysis); err != nil {
+		slog.Error("meal.process.cache.insert_analysis_failed", "user_id", event.UserID, "meal_event_id", event.ID, "error", err)
 		return nil, fmt.Errorf("insert meal_analysis from cache: %w", err)
 	}
 	if err := s.mealEventsRepo.UpdateProcessingStatus(ctx, event.ID, "processed"); err != nil {
+		slog.Error("meal.process.cache.update_status_failed", "user_id", event.UserID, "meal_event_id", event.ID, "error", err)
 		return nil, fmt.Errorf("mark meal_event processed: %w", err)
 	}
 
 	summaryDate := dateOnly(event.EatenAt)
 	if _, err := s.updateDailySummary(ctx, event.UserID, summaryDate, cached.NutritionFields); err != nil {
+		slog.Error("meal.process.cache.summary_update_failed", "user_id", event.UserID, "meal_event_id", event.ID, "error", err)
 		return nil, err
 	}
+	slog.Info("meal.process.cache.persisted", "user_id", event.UserID, "meal_event_id", event.ID, "summary_date", summaryDate.Format("2006-01-02"))
 
 	result := &ProcessTextMealResult{
 		Intent:           inputclassifier.IntentMealLog,
@@ -509,11 +547,14 @@ func (s *Service) processFromCache(ctx context.Context, event *models.MealEvent,
 
 func (s *Service) processWithOpenAI(ctx context.Context, event *models.MealEvent, fingerprint, rawText string) (*ProcessTextMealResult, error) {
 	if s.mealTextAnalyzer == nil {
+		slog.Warn("meal.process.openai.disabled", "user_id", event.UserID, "meal_event_id", event.ID)
 		return nil, ErrOpenAIFallbackDisabled
 	}
 
+	openAIStart := time.Now()
 	openAIResult, err := s.mealTextAnalyzer.AnalyzeMealText(ctx, rawText)
 	if err != nil {
+		slog.Error("meal.process.openai.analyze_failed", "user_id", event.UserID, "meal_event_id", event.ID, "error", err)
 		return nil, fmt.Errorf("analyze meal text: %w", err)
 	}
 
@@ -546,6 +587,7 @@ func (s *Service) processWithOpenAI(ctx context.Context, event *models.MealEvent
 	}
 
 	if err := s.mealAnalysisRepo.Insert(ctx, analysis); err != nil {
+		slog.Error("meal.process.openai.insert_analysis_failed", "user_id", event.UserID, "meal_event_id", event.ID, "error", err)
 		return nil, fmt.Errorf("insert meal_analysis from openai: %w", err)
 	}
 
@@ -558,21 +600,26 @@ func (s *Service) processWithOpenAI(ctx context.Context, event *models.MealEvent
 		RawAnalysisJSON: rawAnalysisJSON,
 		NutritionFields: nutrition,
 	}); err != nil {
+		slog.Error("meal.process.openai.memory_upsert_failed", "user_id", event.UserID, "meal_event_id", event.ID, "error", err)
 		return nil, fmt.Errorf("upsert meal_memory: %w", err)
 	}
 
 	if err := s.maybeSaveReusableMealTemplate(ctx, fingerprint, openAIResult.CanonicalName, openAIResult.ConfidenceScore, items); err != nil {
+		slog.Error("meal.process.openai.reusable_save_failed", "user_id", event.UserID, "meal_event_id", event.ID, "error", err)
 		return nil, fmt.Errorf("save reusable meal template: %w", err)
 	}
 
 	if err := s.mealEventsRepo.UpdateProcessingStatus(ctx, event.ID, "processed"); err != nil {
+		slog.Error("meal.process.openai.update_status_failed", "user_id", event.UserID, "meal_event_id", event.ID, "error", err)
 		return nil, fmt.Errorf("mark meal_event processed: %w", err)
 	}
 
 	summaryDate := dateOnly(event.EatenAt)
 	if _, err := s.updateDailySummary(ctx, event.UserID, summaryDate, nutrition); err != nil {
+		slog.Error("meal.process.openai.summary_update_failed", "user_id", event.UserID, "meal_event_id", event.ID, "error", err)
 		return nil, err
 	}
+	slog.Info("meal.process.openai.persisted", "user_id", event.UserID, "meal_event_id", event.ID, "openai_latency_ms", time.Since(openAIStart).Milliseconds(), "summary_date", summaryDate.Format("2006-01-02"))
 
 	return &ProcessTextMealResult{
 		Intent:           inputclassifier.IntentMealLog,
@@ -611,6 +658,7 @@ func (s *Service) processFromReusableDatabase(ctx context.Context, event *models
 			return nil, err
 		}
 		if matched == nil || overlap < reusableMatchThreshold {
+			slog.Info("meal.process.reusable.no_match", "user_id", event.UserID, "meal_event_id", event.ID, "reason", reason, "overlap", overlap)
 			return nil, nil
 		}
 		matchReason = reason
@@ -689,6 +737,13 @@ func (s *Service) processFromReusableDatabase(ctx context.Context, event *models
 	if _, err := s.updateDailySummary(ctx, event.UserID, summaryDate, total); err != nil {
 		return nil, err
 	}
+	slog.Info("meal.process.reusable.persisted",
+		"user_id", event.UserID,
+		"meal_event_id", event.ID,
+		"match_reason", matchReason,
+		"token_overlap_score", tokenOverlap,
+		"summary_date", summaryDate.Format("2006-01-02"),
+	)
 
 	return &ProcessTextMealResult{
 		Intent:            inputclassifier.IntentMealLog,
