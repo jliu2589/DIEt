@@ -1,0 +1,378 @@
+openapi: 3.0.3
+info:
+  title: Diet Backend API
+  version: 0.1.0
+  description: Lightweight contract for core meal/chat/dashboard integration.
+servers:
+  - url: http://localhost:8080
+paths:
+  /v1/meals:
+    post:
+      summary: Create meal log
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMealRequest'
+      responses:
+        '200':
+          description: Meal processed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateMealResponse'
+  /v1/chat:
+    post:
+      summary: Route chat intent
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+      responses:
+        '200':
+          description: Chat response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+  /v1/meals/recent:
+    get:
+      summary: List recent meals
+      parameters:
+        - in: query
+          name: user_id
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 0 }
+      responses:
+        '200':
+          description: Recent meals
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MealItemView'
+  /v1/meals/{mealEventID}:
+    get:
+      summary: Get one meal event detail
+      parameters:
+        - in: path
+          name: mealEventID
+          required: true
+          schema: { type: integer, format: int64 }
+        - in: query
+          name: user_id
+          schema: { type: string }
+      responses:
+        '200':
+          description: Meal detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MealDetailResponse'
+    patch:
+      summary: Patch editable meal fields
+      parameters:
+        - in: path
+          name: mealEventID
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMealRequest'
+      responses:
+        '200':
+          description: Updated meal detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MealDetailResponse'
+    delete:
+      summary: Delete meal event
+      parameters:
+        - in: path
+          name: mealEventID
+          required: true
+          schema: { type: integer, format: int64 }
+        - in: query
+          name: user_id
+          schema: { type: string }
+      responses:
+        '204':
+          description: Deleted
+  /v1/daily-summary:
+    get:
+      summary: Daily nutrition summary
+      parameters:
+        - in: query
+          name: user_id
+          schema: { type: string }
+        - in: query
+          name: date
+          required: true
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Daily summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailySummaryResponse'
+  /v1/dashboard/today:
+    get:
+      summary: Combined dashboard snapshot for today
+      parameters:
+        - in: query
+          name: user_id
+          schema: { type: string }
+      responses:
+        '200':
+          description: Dashboard snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardTodayResponse'
+  /v1/settings:
+    get:
+      summary: Get user settings
+      parameters:
+        - in: query
+          name: user_id
+          schema: { type: string }
+      responses:
+        '200':
+          description: User settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSettingsResponse'
+  /v1/weight:
+    post:
+      summary: Create weight entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWeightRequest'
+      responses:
+        '200':
+          description: Weight entry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WeightEntryResponse'
+  /v1/recommendations:
+    get:
+      summary: Get recommendation candidates
+      parameters:
+        - in: query
+          name: user_id
+          schema: { type: string }
+      responses:
+        '200':
+          description: Recommendation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecommendationsResponse'
+  /v1/foods/search:
+    get:
+      summary: Search canonical foods
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100 }
+      responses:
+        '200':
+          description: Food search result
+  /v1/reusable-meals:
+    get:
+      summary: List reusable meals
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100 }
+      responses:
+        '200':
+          description: Reusable meal list
+components:
+  schemas:
+    NutritionTotals:
+      type: object
+      properties:
+        calories_kcal: { type: number }
+        protein_g: { type: number }
+        carbohydrate_g: { type: number }
+        fat_g: { type: number }
+    MealItemView:
+      type: object
+      properties:
+        meal_event_id: { type: integer, format: int64 }
+        canonical_name: { type: string }
+        logged_at: { type: string, format: date-time }
+        eaten_at: { type: string, format: date-time }
+        time_source: { type: string }
+        source: { type: string }
+        confidence_score: { type: number, nullable: true }
+        calories_kcal: { type: number, nullable: true }
+        protein_g: { type: number, nullable: true }
+        carbohydrate_g: { type: number, nullable: true }
+        fat_g: { type: number, nullable: true }
+    CreateMealRequest:
+      type: object
+      required: [source, raw_text]
+      properties:
+        user_id: { type: string }
+        source: { type: string }
+        raw_text: { type: string }
+        eaten_at: { type: string, format: date-time }
+        idempotency_key: { type: string }
+    CreateMealResponse:
+      type: object
+      properties:
+        intent: { type: string }
+        logged: { type: boolean }
+        message: { type: string }
+        item:
+          $ref: '#/components/schemas/MealItemView'
+    ChatRequest:
+      type: object
+      required: [message]
+      properties:
+        user_id: { type: string }
+        message: { type: string }
+        logged_at: { type: string, format: date-time, nullable: true }
+        idempotency_key: { type: string }
+    ChatResponse:
+      type: object
+      properties:
+        intent: { type: string }
+        message_to_user: { type: string }
+        meal_result:
+          $ref: '#/components/schemas/MealItemView'
+    DailySummaryResponse:
+      type: object
+      properties:
+        user_id: { type: string }
+        date: { type: string, format: date }
+        totals:
+          $ref: '#/components/schemas/NutritionTotals'
+        calories_kcal: { type: number }
+        protein_g: { type: number }
+        carbohydrate_g: { type: number }
+        fat_g: { type: number }
+    DashboardTodayResponse:
+      type: object
+      properties:
+        user_id: { type: string }
+        date: { type: string, format: date }
+        daily_summary:
+          $ref: '#/components/schemas/DailySummaryResponse'
+        recent_meals:
+          type: array
+          items:
+            $ref: '#/components/schemas/MealItemView'
+        recommendations:
+          $ref: '#/components/schemas/RecommendationsResponse'
+    UserSettingsResponse:
+      type: object
+      properties:
+        user_id: { type: string }
+        name: { type: string, nullable: true }
+        height_cm: { type: number, nullable: true }
+        weight_goal_kg: { type: number, nullable: true }
+        calorie_goal: { type: number, nullable: true }
+        protein_goal_g: { type: number, nullable: true }
+        weight_unit: { type: string }
+    CreateWeightRequest:
+      type: object
+      required: [weight, unit, logged_at]
+      properties:
+        user_id: { type: string }
+        weight: { type: number }
+        unit: { type: string, enum: [kg, lb] }
+        logged_at: { type: string, format: date-time }
+    WeightEntryResponse:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        user_id: { type: string }
+        weight: { type: number }
+        unit: { type: string }
+        logged_at: { type: string, format: date-time }
+    RecommendationsResponse:
+      type: object
+      properties:
+        calories_remaining: { type: number }
+        protein_remaining_g: { type: number }
+        message_to_user: { type: string }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              meal_id: { type: integer, format: int64 }
+              canonical_name: { type: string }
+              calories_kcal: { type: number }
+              protein_g: { type: number }
+              carbohydrate_g: { type: number }
+              fat_g: { type: number }
+              source: { type: string, enum: [reusable_meal, canonical_food, meal_memory] }
+              source_id: { type: integer, format: int64 }
+              recommendation_score: { type: number }
+    MealDetailResponse:
+      type: object
+      properties:
+        meal_event_id: { type: integer, format: int64 }
+        canonical_name: { type: string }
+        logged_at: { type: string, format: date-time }
+        eaten_at: { type: string, format: date-time }
+        time_source: { type: string }
+        source: { type: string }
+        raw_text: { type: string, nullable: true }
+        assumptions:
+          type: array
+          items: { type: string }
+        items:
+          type: array
+          items:
+            type: object
+        calories_kcal: { type: number, nullable: true }
+        protein_g: { type: number, nullable: true }
+        carbohydrate_g: { type: number, nullable: true }
+        fat_g: { type: number, nullable: true }
+    UpdateMealRequest:
+      type: object
+      properties:
+        user_id: { type: string }
+        raw_text: { type: string, nullable: true }
+        canonical_name: { type: string, nullable: true }
+        calories_kcal: { type: number, nullable: true }
+        protein_g: { type: number, nullable: true }
+        carbohydrate_g: { type: number, nullable: true }
+        fat_g: { type: number, nullable: true }
+        eaten_at: { type: string, format: date-time, nullable: true }
