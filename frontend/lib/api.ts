@@ -87,6 +87,21 @@ export type ChatResponse = {
   };
 };
 
+export type TrendsPoint = {
+  date: string;
+  weight: number | null;
+  calories_kcal: number | null;
+  protein_g: number | null;
+  carbohydrate_g: number | null;
+  fat_g: number | null;
+};
+
+export type TrendsResponse = {
+  user_id: string;
+  range: "7d" | "30d" | "90d" | "1y";
+  points: TrendsPoint[];
+};
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
 function buildUrl(path: string) {
@@ -161,4 +176,17 @@ export async function postChat(userId: string, message: string): Promise<ChatRes
   }
 
   return response.json() as Promise<ChatResponse>;
+}
+
+export async function getTrends(userId: string, range: "7d" | "30d" | "90d" | "1y"): Promise<TrendsResponse> {
+  const params = new URLSearchParams({ user_id: userId, range });
+  const response = await fetch(buildUrl(`/v1/trends?${params.toString()}`), {
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch trends (${response.status})`);
+  }
+
+  return response.json() as Promise<TrendsResponse>;
 }

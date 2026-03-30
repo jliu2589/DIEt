@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { getDashboardToday, getRecentMeals, postChat, type ChatResponse, type RecentMeal } from "../lib/api";
+import { getDashboardToday, getRecentMeals, getTrends, postChat, type ChatResponse, type RecentMeal, type TrendsPoint } from "../lib/api";
 
 const DASHBOARD_USER_ID = "demo-user-001";
 
@@ -30,44 +30,11 @@ const rangeLabels: Record<TrendRange, string> = {
   yearly: "Yearly"
 };
 
-const trendData: Record<TrendRange, Array<{ label: string; calories: number; protein: number; carbs: number; fat: number; weight: number }>> = {
-  weekly: [
-    { label: "Mon", calories: 1820, protein: 122, carbs: 188, fat: 61, weight: 176.6 },
-    { label: "Tue", calories: 1960, protein: 130, carbs: 201, fat: 64, weight: 176.3 },
-    { label: "Wed", calories: 1875, protein: 126, carbs: 174, fat: 60, weight: 176.1 },
-    { label: "Thu", calories: 2050, protein: 136, carbs: 218, fat: 66, weight: 175.9 },
-    { label: "Fri", calories: 1935, protein: 128, carbs: 196, fat: 63, weight: 175.8 },
-    { label: "Sat", calories: 2120, protein: 140, carbs: 224, fat: 69, weight: 175.7 },
-    { label: "Sun", calories: 1985, protein: 134, carbs: 209, fat: 65, weight: 175.6 }
-  ],
-  monthly: [
-    { label: "W1", calories: 1900, protein: 126, carbs: 190, fat: 62, weight: 177.2 },
-    { label: "W2", calories: 1940, protein: 129, carbs: 196, fat: 64, weight: 176.7 },
-    { label: "W3", calories: 1880, protein: 124, carbs: 184, fat: 61, weight: 176.2 },
-    { label: "W4", calories: 1960, protein: 132, carbs: 201, fat: 65, weight: 175.8 }
-  ],
-  "90d": [
-    { label: "M1", calories: 2020, protein: 132, carbs: 214, fat: 68, weight: 179.4 },
-    { label: "M2", calories: 1980, protein: 130, carbs: 207, fat: 66, weight: 178.6 },
-    { label: "M3", calories: 1925, protein: 128, carbs: 201, fat: 64, weight: 177.7 },
-    { label: "M4", calories: 1895, protein: 126, carbs: 194, fat: 63, weight: 176.9 },
-    { label: "M5", calories: 1950, protein: 129, carbs: 199, fat: 64, weight: 176.1 },
-    { label: "M6", calories: 1910, protein: 127, carbs: 192, fat: 62, weight: 175.8 }
-  ],
-  yearly: [
-    { label: "Jan", calories: 2100, protein: 131, carbs: 226, fat: 71, weight: 181.1 },
-    { label: "Feb", calories: 2040, protein: 129, carbs: 218, fat: 69, weight: 179.9 },
-    { label: "Mar", calories: 1980, protein: 127, carbs: 209, fat: 66, weight: 178.7 },
-    { label: "Apr", calories: 1950, protein: 128, carbs: 204, fat: 65, weight: 177.9 },
-    { label: "May", calories: 1920, protein: 126, carbs: 198, fat: 64, weight: 177.2 },
-    { label: "Jun", calories: 1890, protein: 125, carbs: 193, fat: 63, weight: 176.6 },
-    { label: "Jul", calories: 1940, protein: 129, carbs: 199, fat: 64, weight: 176.1 },
-    { label: "Aug", calories: 1900, protein: 126, carbs: 191, fat: 62, weight: 175.9 },
-    { label: "Sep", calories: 1920, protein: 127, carbs: 194, fat: 63, weight: 175.8 },
-    { label: "Oct", calories: 1880, protein: 124, carbs: 188, fat: 61, weight: 175.7 },
-    { label: "Nov", calories: 1930, protein: 128, carbs: 197, fat: 64, weight: 175.6 },
-    { label: "Dec", calories: 1890, protein: 125, carbs: 190, fat: 62, weight: 175.5 }
-  ]
+const rangeToApi: Record<TrendRange, "7d" | "30d" | "90d" | "1y"> = {
+  weekly: "7d",
+  monthly: "30d",
+  "90d": "90d",
+  yearly: "1y"
 };
 
 export default function HomePage() {
@@ -90,6 +57,9 @@ export default function HomePage() {
   const [isDashboardLoading, setIsDashboardLoading] = useState(true);
   const [activeMetric, setActiveMetric] = useState<TrendMetric>("calories");
   const [activeRange, setActiveRange] = useState<TrendRange>("weekly");
+  const [trendPointsByRange, setTrendPointsByRange] = useState<Partial<Record<TrendRange, TrendsPoint[]>>>({});
+  const [trendsError, setTrendsError] = useState<string | null>(null);
+  const [isTrendsLoading, setIsTrendsLoading] = useState(false);
 
   async function refreshDashboard() {
     setDashboardError(null);
@@ -125,6 +95,25 @@ export default function HomePage() {
   useEffect(() => {
     void refreshDashboard();
   }, []);
+
+  useEffect(() => {
+    const alreadyLoaded = trendPointsByRange[activeRange];
+    if (alreadyLoaded) {
+      return;
+    }
+    setIsTrendsLoading(true);
+    setTrendsError(null);
+    void getTrends(DASHBOARD_USER_ID, rangeToApi[activeRange])
+      .then((response) => {
+        setTrendPointsByRange((prev) => ({ ...prev, [activeRange]: response.points }));
+      })
+      .catch((error: unknown) => {
+        setTrendsError(error instanceof Error ? error.message : "Failed to load trends");
+      })
+      .finally(() => {
+        setIsTrendsLoading(false);
+      });
+  }, [activeRange, trendPointsByRange]);
 
   function buildChatSummary(response: ChatResponse) {
     if (response.meal_result) {
@@ -305,7 +294,12 @@ export default function HomePage() {
             ))}
           </div>
 
-          <LineTrendChart data={trendData[activeRange]} metric={activeMetric} />
+          <LineTrendChart
+            points={trendPointsByRange[activeRange] ?? []}
+            metric={activeMetric}
+            loading={isTrendsLoading}
+            error={trendsError}
+          />
         </div>
       </SectionCard>
     </main>
@@ -313,20 +307,54 @@ export default function HomePage() {
 }
 
 function LineTrendChart({
-  data,
-  metric
+  points,
+  metric,
+  loading,
+  error
 }: {
-  data: Array<{ label: string; calories: number; protein: number; carbs: number; fat: number; weight: number }>;
+  points: TrendsPoint[];
   metric: TrendMetric;
+  loading: boolean;
+  error: string | null;
 }) {
-  const values = data.map((item) => item[metric]);
+  const chartPoints = points
+    .map((item) => {
+      let value: number | null;
+      if (metric === "calories") return item.calories_kcal;
+      if (metric === "protein") return item.protein_g;
+      if (metric === "carbs") return item.carbohydrate_g;
+      if (metric === "fat") return item.fat_g;
+      value = item.weight;
+      return value;
+    })
+    .map((value, idx) => ({ value, date: points[idx]?.date }))
+    .filter((item): item is { value: number; date: string } => item.value !== null && Boolean(item.date));
+
+  const values = chartPoints.map((item) => item.value);
+
+  if (error) {
+    return <p className="text-sm text-rose-700">{error}</p>;
+  }
+
+  if (loading) {
+    return <p className="text-sm text-stone-500">Loading trends…</p>;
+  }
+
+  if (values.length === 0 || points.length === 0) {
+    return (
+      <div className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-6 text-center text-sm text-stone-500">
+        No trend data yet for this range.
+      </div>
+    );
+  }
+
   const min = Math.min(...values);
   const max = Math.max(...values);
   const spread = max - min || 1;
   const chartWidth = 100;
   const chartHeight = 50;
 
-  const points = values
+  const linePoints = values
     .map((value, index) => {
       const x = (index / Math.max(values.length - 1, 1)) * chartWidth;
       const y = chartHeight - ((value - min) / spread) * chartHeight;
@@ -363,13 +391,13 @@ function LineTrendChart({
               <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.03" />
             </linearGradient>
           </defs>
-          <polyline fill="none" stroke="#f59e0b" strokeWidth="1.5" points={points} />
-          <polygon fill="url(#trend-fill)" points={`0,50 ${points} 100,50`} />
+          <polyline fill="none" stroke="#f59e0b" strokeWidth="1.5" points={linePoints} />
+          <polygon fill="url(#trend-fill)" points={`0,50 ${linePoints} 100,50`} />
         </svg>
         <div className="mt-2 grid grid-cols-4 gap-1 text-[10px] text-stone-500 sm:grid-cols-6 md:grid-cols-8">
-          {data.map((point) => (
-            <span key={point.label} className="truncate text-center">
-              {point.label}
+          {chartPoints.filter((_, idx) => idx % Math.ceil(chartPoints.length / 8) === 0 || idx === chartPoints.length - 1).map((point) => (
+            <span key={point.date} className="truncate text-center">
+              {formatTrendLabel(point.date)}
             </span>
           ))}
         </div>
@@ -399,6 +427,17 @@ function formatMealTime(timestamp: string) {
   return new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
     minute: "2-digit"
+  }).format(parsed);
+}
+
+function formatTrendLabel(date: string) {
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) {
+    return date;
+  }
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric"
   }).format(parsed);
 }
 
