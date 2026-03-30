@@ -30,6 +30,7 @@ type Service struct {
 	mealsRepo          *repositories.MealsRepository
 	mealItemsRepo      *repositories.MealItemsRepository
 	canonicalFoodsRepo *repositories.CanonicalFoodsRepository
+	txManager          *repositories.TxManager
 	mealTextAnalyzer   Analyzer
 	classifier         InputClassifier
 }
@@ -95,6 +96,7 @@ func NewService(
 	mealsRepo *repositories.MealsRepository,
 	mealItemsRepo *repositories.MealItemsRepository,
 	canonicalFoodsRepo *repositories.CanonicalFoodsRepository,
+	txManager *repositories.TxManager,
 	mealTextAnalyzer Analyzer,
 	classifier InputClassifier,
 ) *Service {
@@ -106,6 +108,7 @@ func NewService(
 		mealsRepo:          mealsRepo,
 		mealItemsRepo:      mealItemsRepo,
 		canonicalFoodsRepo: canonicalFoodsRepo,
+		txManager:          txManager,
 		mealTextAnalyzer:   mealTextAnalyzer,
 		classifier:         classifier,
 	}
@@ -147,21 +150,6 @@ func (s *Service) ProcessTextMeal(ctx context.Context, input ProcessTextMealInpu
 	}
 
 	rawText := input.RawText
-	event, err := s.mealEventsRepo.Insert(ctx, models.MealEvent{
-		UserID:           input.UserID,
-		Source:           input.Source,
-		SourceMessageID:  input.SourceMessageID,
-		EventType:        "text",
-		RawText:          &rawText,
-		LoggedAt:         time.Now().UTC(),
-		EatenAt:          eatenAt,
-		TimeSource:       timeSource,
-		ProcessingStatus: "pending",
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create meal_event: %w", err)
-	}
-
 	fingerprint := FingerprintFromText(input.RawText)
 
 	cached, err := s.mealMemoryRepo.FindByFingerprintHash(ctx, fingerprint)
@@ -169,17 +157,69 @@ func (s *Service) ProcessTextMeal(ctx context.Context, input ProcessTextMealInpu
 		return nil, fmt.Errorf("lookup meal memory: %w", err)
 	}
 
-	if cached != nil {
-		return s.processFromCache(ctx, event, cached)
+	if s.txManager == nil {
+		event, err := s.mealEventsRepo.Insert(ctx, models.MealEvent{
+			UserID:           input.UserID,
+			Source:           input.Source,
+			SourceMessageID:  input.SourceMessageID,
+			EventType:        "text",
+			RawText:          &rawText,
+			LoggedAt:         time.Now().UTC(),
+			EatenAt:          eatenAt,
+			TimeSource:       timeSource,
+			ProcessingStatus: "pending",
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create meal_event: %w", err)
+		}
+		if cached != nil {
+			return s.processFromCache(ctx, event, cached)
+		}
+		if reusableResult, err := s.processFromReusableDatabase(ctx, event, fingerprint, input.RawText); err != nil {
+			return nil, err
+		} else if reusableResult != nil {
+			return reusableResult, nil
+		}
+		return s.processWithOpenAI(ctx, event, fingerprint, input.RawText)
 	}
 
-	if reusableResult, err := s.processFromReusableDatabase(ctx, event, fingerprint, input.RawText); err != nil {
+	var out *ProcessTextMealResult
+	if err := s.txManager.WithinTx(ctx, func(txRepos repositories.Repositories) error {
+		txSvc := s.withRepos(txRepos)
+		event, err := txSvc.mealEventsRepo.Insert(ctx, models.MealEvent{
+			UserID:           input.UserID,
+			Source:           input.Source,
+			SourceMessageID:  input.SourceMessageID,
+			EventType:        "text",
+			RawText:          &rawText,
+			LoggedAt:         time.Now().UTC(),
+			EatenAt:          eatenAt,
+			TimeSource:       timeSource,
+			ProcessingStatus: "pending",
+		})
+		if err != nil {
+			return fmt.Errorf("create meal_event: %w", err)
+		}
+
+		if cached != nil {
+			out, err = txSvc.processFromCache(ctx, event, cached)
+			return err
+		}
+
+		if reusableResult, err := txSvc.processFromReusableDatabase(ctx, event, fingerprint, input.RawText); err != nil {
+			return err
+		} else if reusableResult != nil {
+			out = reusableResult
+			return nil
+		}
+
+		out, err = txSvc.processWithOpenAI(ctx, event, fingerprint, input.RawText)
+		return err
+	}); err != nil {
 		return nil, err
-	} else if reusableResult != nil {
-		return reusableResult, nil
 	}
 
-	return s.processWithOpenAI(ctx, event, fingerprint, input.RawText)
+	return out, nil
 }
 
 func (s *Service) GetRecentMeals(ctx context.Context, userID string, limit int) ([]RecentMealResult, error) {
@@ -604,6 +644,21 @@ func (s *Service) resolveStoredMealItems(ctx context.Context, items []models.Mea
 		})
 	}
 	return out, nil
+}
+
+func (s *Service) withRepos(repos repositories.Repositories) *Service {
+	return &Service{
+		mealEventsRepo:     repos.MealEvents,
+		mealAnalysisRepo:   repos.MealAnalysis,
+		mealMemoryRepo:     repos.MealMemory,
+		dailySummaryRepo:   repos.DailyNutritionSummary,
+		mealsRepo:          repos.Meals,
+		mealItemsRepo:      repos.MealItems,
+		canonicalFoodsRepo: repos.CanonicalFoods,
+		txManager:          nil,
+		mealTextAnalyzer:   s.mealTextAnalyzer,
+		classifier:         s.classifier,
+	}
 }
 
 func nonMealIntentMessage(intent string) string {

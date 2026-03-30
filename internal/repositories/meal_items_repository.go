@@ -9,11 +9,15 @@ import (
 )
 
 type MealItemsRepository struct {
-	pool *pgxpool.Pool
+	db DBTX
 }
 
 func NewMealItemsRepository(pool *pgxpool.Pool) *MealItemsRepository {
-	return &MealItemsRepository{pool: pool}
+	return &MealItemsRepository{db: pool}
+}
+
+func NewMealItemsRepositoryWithDB(db DBTX) *MealItemsRepository {
+	return &MealItemsRepository{db: db}
 }
 
 func (r *MealItemsRepository) Create(ctx context.Context, in models.StoredMealItem) (*models.StoredMealItem, error) {
@@ -52,7 +56,7 @@ func (r *MealItemsRepository) Create(ctx context.Context, in models.StoredMealIt
 	`
 
 	var out models.StoredMealItem
-	if err := r.pool.QueryRow(ctx, q, in.MealID, in.FoodID, in.Quantity, in.Unit).Scan(
+	if err := r.db.QueryRow(ctx, q, in.MealID, in.FoodID, in.Quantity, in.Unit).Scan(
 		&out.ID,
 		&out.MealID,
 		&out.FoodID,
@@ -80,7 +84,7 @@ func (r *MealItemsRepository) ListByMealID(ctx context.Context, mealID int64) ([
 		ORDER BY id ASC
 	`
 
-	rows, err := r.pool.Query(ctx, q, mealID)
+	rows, err := r.db.Query(ctx, q, mealID)
 	if err != nil {
 		return nil, fmt.Errorf("list meal_items by meal_id: %w", err)
 	}

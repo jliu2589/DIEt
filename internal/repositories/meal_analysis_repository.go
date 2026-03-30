@@ -9,11 +9,15 @@ import (
 )
 
 type MealAnalysisRepository struct {
-	pool *pgxpool.Pool
+	db DBTX
 }
 
 func NewMealAnalysisRepository(pool *pgxpool.Pool) *MealAnalysisRepository {
-	return &MealAnalysisRepository{pool: pool}
+	return &MealAnalysisRepository{db: pool}
+}
+
+func NewMealAnalysisRepositoryWithDB(db DBTX) *MealAnalysisRepository {
+	return &MealAnalysisRepository{db: db}
 }
 
 func (r *MealAnalysisRepository) Insert(ctx context.Context, analysis models.MealAnalysis) error {
@@ -33,7 +37,7 @@ func (r *MealAnalysisRepository) Insert(ctx context.Context, analysis models.Mea
 		)
 	`
 
-	if _, err := r.pool.Exec(
+	if _, err := r.db.Exec(
 		ctx,
 		q,
 		analysis.MealEventID,

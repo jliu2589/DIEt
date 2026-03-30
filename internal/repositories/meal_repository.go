@@ -1,6 +1,9 @@
 package repositories
 
-import "github.com/jackc/pgx/v5/pgxpool"
+import (
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
 
 type Repositories struct {
 	MealEvents            *MealEventsRepository
@@ -12,6 +15,7 @@ type Repositories struct {
 	CanonicalFoods        *CanonicalFoodsRepository
 	Meals                 *MealsRepository
 	MealItems             *MealItemsRepository
+	TxManager             *TxManager
 }
 
 func New(pool *pgxpool.Pool) Repositories {
@@ -25,5 +29,22 @@ func New(pool *pgxpool.Pool) Repositories {
 		CanonicalFoods:        NewCanonicalFoodsRepository(pool),
 		Meals:                 NewMealsRepository(pool),
 		MealItems:             NewMealItemsRepository(pool),
+		TxManager:             NewTxManager(pool),
 	}
+}
+
+func NewWithDB(db DBTX) Repositories {
+	return Repositories{
+		MealEvents:            NewMealEventsRepositoryWithDB(db),
+		MealAnalysis:          NewMealAnalysisRepositoryWithDB(db),
+		MealMemory:            NewMealMemoryRepositoryWithDB(db),
+		DailyNutritionSummary: NewDailyNutritionSummaryRepositoryWithDB(db),
+		CanonicalFoods:        NewCanonicalFoodsRepositoryWithDB(db),
+		Meals:                 NewMealsRepositoryWithDB(db),
+		MealItems:             NewMealItemsRepositoryWithDB(db),
+	}
+}
+
+func NewWithTx(tx pgx.Tx) Repositories {
+	return NewWithDB(tx)
 }

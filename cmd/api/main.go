@@ -66,6 +66,7 @@ func main() {
 		repos.Meals,
 		repos.MealItems,
 		repos.CanonicalFoods,
+		repos.TxManager,
 		openAIClient,
 		classifierSvc,
 	)

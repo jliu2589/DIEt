@@ -12,11 +12,15 @@ import (
 )
 
 type CanonicalFoodsRepository struct {
-	pool *pgxpool.Pool
+	db DBTX
 }
 
 func NewCanonicalFoodsRepository(pool *pgxpool.Pool) *CanonicalFoodsRepository {
-	return &CanonicalFoodsRepository{pool: pool}
+	return &CanonicalFoodsRepository{db: pool}
+}
+
+func NewCanonicalFoodsRepositoryWithDB(db DBTX) *CanonicalFoodsRepository {
+	return &CanonicalFoodsRepository{db: db}
 }
 
 func (r *CanonicalFoodsRepository) GetByID(ctx context.Context, id int64) (*models.CanonicalFoodWithNutrition, error) {
@@ -53,7 +57,7 @@ func (r *CanonicalFoodsRepository) GetByID(ctx context.Context, id int64) (*mode
 	`
 
 	var out models.CanonicalFoodWithNutrition
-	if err := r.pool.QueryRow(ctx, q, id).Scan(
+	if err := r.db.QueryRow(ctx, q, id).Scan(
 		&out.ID,
 		&out.CanonicalName,
 		&out.DefaultAmount,
@@ -128,7 +132,7 @@ func (r *CanonicalFoodsRepository) GetByCanonicalName(ctx context.Context, canon
 	`
 
 	var out models.CanonicalFoodWithNutrition
-	if err := r.pool.QueryRow(ctx, q, name).Scan(
+	if err := r.db.QueryRow(ctx, q, name).Scan(
 		&out.ID,
 		&out.CanonicalName,
 		&out.DefaultAmount,

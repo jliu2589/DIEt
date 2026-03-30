@@ -12,7 +12,7 @@ import (
 )
 
 type MealEventsRepository struct {
-	pool *pgxpool.Pool
+	db DBTX
 }
 
 type RecentMeal struct {
@@ -36,7 +36,11 @@ type MealTimeUpdate struct {
 }
 
 func NewMealEventsRepository(pool *pgxpool.Pool) *MealEventsRepository {
-	return &MealEventsRepository{pool: pool}
+	return &MealEventsRepository{db: pool}
+}
+
+func NewMealEventsRepositoryWithDB(db DBTX) *MealEventsRepository {
+	return &MealEventsRepository{db: db}
 }
 
 func (r *MealEventsRepository) Insert(ctx context.Context, event models.MealEvent) (*models.MealEvent, error) {
@@ -48,7 +52,7 @@ func (r *MealEventsRepository) Insert(ctx context.Context, event models.MealEven
 	`
 
 	var out models.MealEvent
-	if err := r.pool.QueryRow(
+	if err := r.db.QueryRow(
 		ctx,
 		q,
 		event.UserID,
@@ -92,7 +96,7 @@ func (r *MealEventsRepository) GetByID(ctx context.Context, id int64) (*models.M
 	`
 
 	var out models.MealEvent
-	if err := r.pool.QueryRow(ctx, q, id).Scan(
+	if err := r.db.QueryRow(ctx, q, id).Scan(
 		&out.ID,
 		&out.UserID,
 		&out.Source,
@@ -121,7 +125,7 @@ func (r *MealEventsRepository) UpdateProcessingStatus(ctx context.Context, id in
 		WHERE id = $1
 	`
 
-	if _, err := r.pool.Exec(ctx, q, id, status); err != nil {
+	if _, err := r.db.Exec(ctx, q, id, status); err != nil {
 		return fmt.Errorf("update meal_event processing status: %w", err)
 	}
 
@@ -148,7 +152,7 @@ func (r *MealEventsRepository) ListRecentByUserID(ctx context.Context, userID st
 		LIMIT $2
 	`
 
-	rows, err := r.pool.Query(ctx, q, userID, limit)
+	rows, err := r.db.Query(ctx, q, userID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list recent meals by user id: %w", err)
 	}
@@ -199,7 +203,7 @@ func (r *MealEventsRepository) UpdateEatenAtByIDAndUserID(ctx context.Context, m
 	`
 
 	var out MealTimeUpdate
-	if err := r.pool.QueryRow(ctx, q, mealEventID, userID, eatenAt).Scan(
+	if err := r.db.QueryRow(ctx, q, mealEventID, userID, eatenAt).Scan(
 		&out.MealEventID,
 		&out.CanonicalName,
 		&out.EatenAt,

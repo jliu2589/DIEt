@@ -13,7 +13,7 @@ import (
 )
 
 type MealsRepository struct {
-	pool *pgxpool.Pool
+	db DBTX
 }
 
 type MealCandidate struct {
@@ -24,7 +24,11 @@ type MealCandidate struct {
 }
 
 func NewMealsRepository(pool *pgxpool.Pool) *MealsRepository {
-	return &MealsRepository{pool: pool}
+	return &MealsRepository{db: pool}
+}
+
+func NewMealsRepositoryWithDB(db DBTX) *MealsRepository {
+	return &MealsRepository{db: db}
 }
 
 func (r *MealsRepository) Create(ctx context.Context, in models.Meal) (*models.Meal, error) {
@@ -56,7 +60,7 @@ func (r *MealsRepository) Create(ctx context.Context, in models.Meal) (*models.M
 	`
 
 	var out models.Meal
-	if err := r.pool.QueryRow(ctx, q, name, in.FingerprintHash, in.SourceType, in.ConfidenceScore).Scan(
+	if err := r.db.QueryRow(ctx, q, name, in.FingerprintHash, in.SourceType, in.ConfidenceScore).Scan(
 		&out.ID,
 		&out.CanonicalName,
 		&out.FingerprintHash,
@@ -90,7 +94,7 @@ func (r *MealsRepository) GetByID(ctx context.Context, id int64) (*models.Meal, 
 	`
 
 	var out models.Meal
-	if err := r.pool.QueryRow(ctx, q, id).Scan(
+	if err := r.db.QueryRow(ctx, q, id).Scan(
 		&out.ID,
 		&out.CanonicalName,
 		&out.FingerprintHash,
@@ -128,7 +132,7 @@ func (r *MealsRepository) GetByFingerprintHash(ctx context.Context, fingerprintH
 	`
 
 	var out models.Meal
-	if err := r.pool.QueryRow(ctx, q, hash).Scan(
+	if err := r.db.QueryRow(ctx, q, hash).Scan(
 		&out.ID,
 		&out.CanonicalName,
 		&out.FingerprintHash,
@@ -162,7 +166,7 @@ func (r *MealsRepository) ListCandidates(ctx context.Context, limit int) ([]Meal
 		LIMIT $1
 	`
 
-	rows, err := r.pool.Query(ctx, q, limit)
+	rows, err := r.db.Query(ctx, q, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list meal candidates: %w", err)
 	}
