@@ -98,8 +98,8 @@ func main() {
 	// 14) Handlers + 15) Gin router
 	router := server.NewRouter(server.Dependencies{
 		HealthHandler:   handlers.NewHealthHandler(),
-		MealHandler:     handlers.NewMealHandler(mealSvc),
-		ChatHandler:     handlers.NewChatHandler(chatSvc),
+		MealHandler:     handlers.NewMealHandler(mealSvc, repos.IdempotencyKeys),
+		ChatHandler:     handlers.NewChatHandler(chatSvc, repos.IdempotencyKeys),
 		SummaryHandler:  handlers.NewSummaryHandler(repos.DailyNutritionSummary),
 		Recommendations: handlers.NewRecommendationsHandler(recommendationsSvc),
 		UserSettings:    handlers.NewUserSettingsHandler(userSettingsSvc),

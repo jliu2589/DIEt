@@ -7,23 +7,26 @@ import (
 	"strings"
 	"time"
 
+	"diet/internal/repositories"
 	mealservice "diet/internal/services/meal"
 	"github.com/gin-gonic/gin"
 )
 
 type MealHandler struct {
-	service *mealservice.Service
+	service         *mealservice.Service
+	idempotencyRepo *repositories.IdempotencyKeysRepository
 }
 
-func NewMealHandler(service *mealservice.Service) *MealHandler {
-	return &MealHandler{service: service}
+func NewMealHandler(service *mealservice.Service, idempotencyRepo *repositories.IdempotencyKeysRepository) *MealHandler {
+	return &MealHandler{service: service, idempotencyRepo: idempotencyRepo}
 }
 
 type createMealRequest struct {
-	UserID  string    `json:"user_id"`
-	Source  string    `json:"source" binding:"required"`
-	RawText string    `json:"raw_text" binding:"required"`
-	EatenAt time.Time `json:"eaten_at"`
+	UserID         string    `json:"user_id"`
+	Source         string    `json:"source" binding:"required"`
+	RawText        string    `json:"raw_text" binding:"required"`
+	EatenAt        time.Time `json:"eaten_at"`
+	IdempotencyKey string    `json:"idempotency_key,omitempty"`
 }
 
 type createMealResponse struct {
@@ -76,6 +79,12 @@ func (h *MealHandler) CreateMeal(c *gin.Context) {
 		return
 	}
 
+	idempotencyKey := resolveIdempotencyKey(c, req.IdempotencyKey)
+	idempotencyRecordID, handled := beginIdempotency(c, h.idempotencyRepo, userID, "POST:/v1/meals", idempotencyKey, req)
+	if handled {
+		return
+	}
+
 	result, err := h.service.ProcessTextMeal(c.Request.Context(), mealservice.ProcessTextMealInput{
 		UserID:  userID,
 		Source:  req.Source,
@@ -83,6 +92,7 @@ func (h *MealHandler) CreateMeal(c *gin.Context) {
 		EatenAt: req.EatenAt,
 	})
 	if err != nil {
+		cleanupIdempotencyOnError(c, h.idempotencyRepo, idempotencyRecordID)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process meal"})
 		return
 	}
@@ -97,6 +107,7 @@ func (h *MealHandler) CreateMeal(c *gin.Context) {
 		resp.Item = &item
 	}
 
+	saveIdempotencySuccess(c, h.idempotencyRepo, idempotencyRecordID, http.StatusOK, resp)
 	c.JSON(http.StatusOK, resp)
 }
 

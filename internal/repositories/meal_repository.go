@@ -16,6 +16,7 @@ type Repositories struct {
 	Meals                 *MealsRepository
 	MealItems             *MealItemsRepository
 	TxManager             *TxManager
+	IdempotencyKeys       *IdempotencyKeysRepository
 }
 
 func New(pool *pgxpool.Pool) Repositories {
@@ -30,6 +31,7 @@ func New(pool *pgxpool.Pool) Repositories {
 		Meals:                 NewMealsRepository(pool),
 		MealItems:             NewMealItemsRepository(pool),
 		TxManager:             NewTxManager(pool),
+		IdempotencyKeys:       NewIdempotencyKeysRepository(pool),
 	}
 }
 
