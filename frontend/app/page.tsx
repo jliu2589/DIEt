@@ -151,6 +151,8 @@ export default function HomePage() {
     } finally {
       setIsSubmitting(false);
     }
+    setDrafts((prev) => [trimmed, ...prev].slice(0, 3));
+    setChatInput("");
   }
 
   return (
