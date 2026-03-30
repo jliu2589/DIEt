@@ -9,6 +9,17 @@ function todayDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function displayNumber(value: number | null | undefined, suffix = "") {
+  if (value == null) {
+    return "—";
+  }
+  return `${value}${suffix}`;
+}
+
+function summaryTotals(summary: DailySummaryResponse) {
+  return summary.totals ?? summary;
+}
+
 export default function HomePage() {
   const [rawText, setRawText] = useState("");
   const [summary, setSummary] = useState<DailySummaryResponse | null>(null);
@@ -60,6 +71,8 @@ export default function HomePage() {
     }
   }
 
+  const lastMealItem = lastMeal?.item;
+
   return (
     <main className="space-y-6">
       <section className="rounded-xl bg-white p-4 shadow-sm">
@@ -83,17 +96,17 @@ export default function HomePage() {
         </form>
       </section>
 
-      {lastMeal && (
+      {lastMeal?.logged && lastMealItem && (
         <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
           <h3 className="mb-2 text-base font-semibold text-emerald-900">Meal Logged</h3>
           <p className="mb-2 text-sm text-emerald-900">
-            <strong>{lastMeal.canonical_name}</strong>
+            <strong>{lastMealItem.canonical_name}</strong>
           </p>
           <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
-            <Metric label="Calories" value={`${lastMeal.nutrition.calories_kcal} kcal`} />
-            <Metric label="Protein" value={`${lastMeal.nutrition.protein_g} g`} />
-            <Metric label="Carbs" value={`${lastMeal.nutrition.carbohydrate_g} g`} />
-            <Metric label="Fat" value={`${lastMeal.nutrition.fat_g} g`} />
+            <Metric label="Calories" value={displayNumber(lastMealItem.calories_kcal, " kcal")} />
+            <Metric label="Protein" value={displayNumber(lastMealItem.protein_g, " g")} />
+            <Metric label="Carbs" value={displayNumber(lastMealItem.carbohydrate_g, " g")} />
+            <Metric label="Fat" value={displayNumber(lastMealItem.fat_g, " g")} />
           </div>
         </section>
       )}
@@ -108,15 +121,15 @@ export default function HomePage() {
 
         {summary ? (
           <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-3">
-            <Metric label="Calories" value={`${summary.calories_kcal} kcal`} />
-            <Metric label="Protein" value={`${summary.protein_g} g`} />
-            <Metric label="Carbs" value={`${summary.carbohydrate_g} g`} />
-            <Metric label="Fat" value={`${summary.fat_g} g`} />
-            <Metric label="Fiber" value={`${summary.fiber_g} g`} />
-            <Metric label="Sodium" value={`${summary.sodium_mg} mg`} />
-            <Metric label="Potassium" value={`${summary.potassium_mg} mg`} />
-            <Metric label="Calcium" value={`${summary.calcium_mg} mg`} />
-            <Metric label="Magnesium" value={`${summary.magnesium_mg} mg`} />
+            <Metric label="Calories" value={`${summaryTotals(summary).calories_kcal} kcal`} />
+            <Metric label="Protein" value={`${summaryTotals(summary).protein_g} g`} />
+            <Metric label="Carbs" value={`${summaryTotals(summary).carbohydrate_g} g`} />
+            <Metric label="Fat" value={`${summaryTotals(summary).fat_g} g`} />
+            <Metric label="Fiber" value={`${summaryTotals(summary).fiber_g} g`} />
+            <Metric label="Sodium" value={`${summaryTotals(summary).sodium_mg} mg`} />
+            <Metric label="Potassium" value={`${summaryTotals(summary).potassium_mg} mg`} />
+            <Metric label="Calcium" value={`${summaryTotals(summary).calcium_mg} mg`} />
+            <Metric label="Magnesium" value={`${summaryTotals(summary).magnesium_mg} mg`} />
           </div>
         ) : (
           <p className="text-sm text-slate-500">No summary data yet.</p>
