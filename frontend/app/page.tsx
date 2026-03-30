@@ -1,6 +1,6 @@
 const goals = [
-  { label: "Calories", consumed: 1380, target: 2100, unit: "kcal" },
-  { label: "Protein", consumed: 78, target: 130, unit: "g" },
+  { label: "Calories", consumed: 1380, target: 2500, unit: "kcal" },
+  { label: "Protein", consumed: 92, target: 160, unit: "g" },
   { label: "Carbs", consumed: 145, target: 220, unit: "g" },
   { label: "Fat", consumed: 52, target: 75, unit: "g" }
 ];
@@ -19,24 +19,14 @@ const todaysMeals = [
 
 const weeklyTrend = [68, 72, 65, 74, 70, 78, 76];
 
-function displayNumber(value: number | null | undefined, suffix = "") {
-  if (value == null) {
-    return "—";
-  }
-  return `${value}${suffix}`;
-}
-
-function summaryTotals(summary: DailySummaryResponse) {
-  return summary.totals ?? summary;
-}
-
 export default function HomePage() {
   return (
     <main className="space-y-5 pb-8">
-      <section className="rounded-2xl border border-stone-200/80 bg-stone-50/70 p-4 shadow-sm sm:p-6">
-        <p className="text-xs font-medium uppercase tracking-[0.14em] text-stone-500">Today’s Progress</p>
+      <section className="rounded-2xl border border-stone-200/80 bg-gradient-to-b from-stone-50 to-amber-50/40 p-4 shadow-sm sm:p-6">
+        <p className="text-xs font-medium uppercase tracking-[0.14em] text-stone-500">Today’s Goals & Totals</p>
         <h2 className="mt-2 text-2xl font-semibold tracking-tight text-stone-900">Nutrition Dashboard</h2>
-        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <p className="mt-1 text-sm text-stone-600">Quick progress snapshot against your daily targets.</p>
+        <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
           {goals.map((goal) => (
             <GoalCard key={goal.label} {...goal} />
           ))}
@@ -137,17 +127,20 @@ function GoalCard({
   unit: string;
 }) {
   const pct = Math.min(Math.round((consumed / target) * 100), 100);
+  const remaining = Math.max(target - consumed, 0);
 
   return (
-    <article className="rounded-xl border border-stone-200 bg-white p-3">
-      <p className="text-xs text-stone-500">{label}</p>
-      <p className="mt-1 text-base font-semibold text-stone-900">
+    <article className="rounded-xl border border-stone-200 bg-white p-3 shadow-sm">
+      <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-stone-500">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-stone-900">
         {consumed}
-        <span className="ml-1 text-xs font-medium text-stone-500">/ {target + " " + unit}</span>
+        <span className="ml-1 text-sm font-medium text-stone-500">/ {target}</span>
       </p>
-      <div className="mt-2 h-2 rounded-full bg-stone-200">
+      <p className="text-xs text-stone-600">{remaining} {unit} remaining</p>
+      <div className="mt-3 h-2 rounded-full bg-stone-200">
         <div className="h-2 rounded-full bg-amber-300" style={{ width: `${pct}%` }} />
       </div>
+      <p className="mt-1 text-[11px] text-stone-500">{pct}% complete</p>
     </article>
   );
 }
