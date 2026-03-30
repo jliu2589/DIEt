@@ -1,12 +1,15 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
+import { getDashboardToday, postChat, type ChatResponse } from "../lib/api";
 
-const goals = [
-  { label: "Calories", consumed: 1380, target: 2500, unit: "kcal" },
-  { label: "Protein", consumed: 92, target: 160, unit: "g" },
-  { label: "Carbs", consumed: 145, target: 220, unit: "g" },
-  { label: "Fat", consumed: 52, target: 75, unit: "g" }
+const DASHBOARD_USER_ID = "demo-user-001";
+
+const goalTargets = [
+  { label: "Calories", key: "calories" as const, target: 2500, unit: "kcal" },
+  { label: "Protein", key: "protein" as const, target: 160, unit: "g" },
+  { label: "Carbs", key: "carbs" as const, target: 220, unit: "g" },
+  { label: "Fat", key: "fat" as const, target: 75, unit: "g" }
 ];
 
 const todaysMeals = [
@@ -75,16 +78,78 @@ const trendData: Record<TrendRange, Array<{ label: string; calories: number; pro
 };
 
 export default function HomePage() {
+  const [goals, setGoals] = useState(
+    goalTargets.map((goal) => ({
+      label: goal.label,
+      consumed: 0,
+      target: goal.target,
+      unit: goal.unit
+    }))
+  );
   const [chatInput, setChatInput] = useState("");
   const [drafts, setDrafts] = useState<string[]>([]);
+  const [chatMessages, setChatMessages] = useState<string[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
+  const [isDashboardLoading, setIsDashboardLoading] = useState(true);
   const [activeMetric, setActiveMetric] = useState<TrendMetric>("calories");
   const [activeRange, setActiveRange] = useState<TrendRange>("weekly");
 
-  function onSubmitChat(event: FormEvent<HTMLFormElement>) {
+  async function refreshDashboard() {
+    setDashboardError(null);
+    try {
+      const dashboard = await getDashboardToday(DASHBOARD_USER_ID);
+      const totals = dashboard.daily_summary.totals;
+      setGoals([
+        { label: "Calories", consumed: Math.round(totals.calories_kcal), target: 2500, unit: "kcal" },
+        { label: "Protein", consumed: Math.round(totals.protein_g), target: 160, unit: "g" },
+        { label: "Carbs", consumed: Math.round(totals.carbohydrate_g), target: 220, unit: "g" },
+        { label: "Fat", consumed: Math.round(totals.fat_g), target: 75, unit: "g" }
+      ]);
+    } catch (error) {
+      setDashboardError(error instanceof Error ? error.message : "Failed to load dashboard");
+    } finally {
+      setIsDashboardLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void refreshDashboard();
+  }, []);
+
+  function buildChatSummary(response: ChatResponse) {
+    if (response.meal_result) {
+      return `Meal logged: ${response.meal_result.canonical_name}`;
+    }
+    if (response.weight_result) {
+      return `Weight logged: ${response.weight_result.weight} ${response.weight_result.unit}`;
+    }
+    if (response.recommendation_result) {
+      return `Recommendation: ${response.recommendation_result.text}`;
+    }
+    return response.message_to_user;
+  }
+
+  async function onSubmitChat(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmed = chatInput.trim();
     if (!trimmed) {
       return;
+    }
+    setIsSubmitting(true);
+    setChatError(null);
+
+    try {
+      const response = await postChat(DASHBOARD_USER_ID, trimmed);
+      setDrafts((prev) => [trimmed, ...prev].slice(0, 3));
+      setChatMessages((prev) => [buildChatSummary(response), ...prev].slice(0, 3));
+      setChatInput("");
+      await refreshDashboard();
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : "Could not send chat message");
+    } finally {
+      setIsSubmitting(false);
     }
     setDrafts((prev) => [trimmed, ...prev].slice(0, 3));
     setChatInput("");
@@ -96,6 +161,8 @@ export default function HomePage() {
         <p className="text-xs font-medium uppercase tracking-[0.14em] text-stone-500">Today’s Goals & Totals</p>
         <h2 className="mt-2 text-2xl font-semibold tracking-tight text-stone-900 sm:text-3xl">Nutrition Dashboard</h2>
         <p className="mt-1 text-sm text-stone-600 sm:text-base">Quick progress snapshot against your daily targets.</p>
+        {dashboardError && <p className="mt-2 text-xs text-rose-700">{dashboardError}</p>}
+        {isDashboardLoading && <p className="mt-2 text-xs text-stone-500">Loading latest totals…</p>}
         <div className="mt-5 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
           {goals.map((goal) => (
             <GoalCard key={goal.label} {...goal} />
@@ -129,19 +196,31 @@ export default function HomePage() {
               <p className="text-xs text-stone-500 sm:text-sm">Try: “Lunch was chicken bowl” or “I weigh 176.2 lb”</p>
               <button
                 type="submit"
+                disabled={isSubmitting}
                 className="shrink-0 rounded-xl bg-stone-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-stone-700 sm:px-5"
               >
-                Send
+                {isSubmitting ? "Sending..." : "Send"}
               </button>
             </div>
           </div>
         </form>
+
+        {chatError && <p className="mt-2 text-xs text-rose-700">{chatError}</p>}
 
         {drafts.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-2">
             {drafts.map((draft, idx) => (
               <p key={`${draft}-${idx}`} className="rounded-full border border-stone-200 bg-white px-3 py-1 text-xs text-stone-600">
                 {draft}
+              </p>
+            ))}
+          </div>
+        )}
+        {chatMessages.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {chatMessages.map((message, idx) => (
+              <p key={`${message}-${idx}`} className="text-xs text-stone-600">
+                {message}
               </p>
             ))}
           </div>

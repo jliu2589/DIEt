@@ -59,6 +59,33 @@ export type RecentMealsResponse = {
   items: RecentMeal[];
 };
 
+export type DashboardTodayResponse = {
+  user_id: string;
+  date: string;
+  daily_summary: DailySummaryResponse;
+};
+
+export type ChatResponse = {
+  intent: string;
+  message_to_user: string;
+  meal_result?: {
+    meal_event_id: number;
+    canonical_name: string;
+    calories_kcal?: number;
+    protein_g?: number;
+    carbohydrate_g?: number;
+    fat_g?: number;
+  };
+  weight_result?: {
+    weight: number;
+    unit: string;
+    logged_at: string;
+  };
+  recommendation_result?: {
+    text: string;
+  };
+};
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
 function buildUrl(path: string) {
@@ -106,4 +133,31 @@ export async function getRecentMeals(userId: string, limit = 20): Promise<Recent
   }
 
   return response.json() as Promise<RecentMealsResponse>;
+}
+
+export async function getDashboardToday(userId: string): Promise<DashboardTodayResponse> {
+  const params = new URLSearchParams({ user_id: userId });
+  const response = await fetch(buildUrl(`/v1/dashboard/today?${params.toString()}`), {
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch dashboard (${response.status})`);
+  }
+
+  return response.json() as Promise<DashboardTodayResponse>;
+}
+
+export async function postChat(userId: string, message: string): Promise<ChatResponse> {
+  const response = await fetch(buildUrl("/v1/chat"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: userId, message })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to send chat (${response.status})`);
+  }
+
+  return response.json() as Promise<ChatResponse>;
 }
