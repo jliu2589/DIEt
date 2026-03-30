@@ -17,7 +17,7 @@ func NewUserSettingsHandler(service *userSettingsService.Service) *UserSettingsH
 }
 
 type upsertUserSettingsRequest struct {
-	UserID       string   `json:"user_id" binding:"required"`
+	UserID       string   `json:"user_id"`
 	Name         *string  `json:"name"`
 	HeightCM     *float64 `json:"height_cm"`
 	WeightGoalKG *float64 `json:"weight_goal_kg"`
@@ -67,9 +67,8 @@ func (h *UserSettingsHandler) UpsertUserSettings(c *gin.Context) {
 		return
 	}
 
-	userID, ok := normalizeRequiredUserID(req.UserID)
+	userID, ok := resolveUserID(c, req.UserID, false)
 	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id is required"})
 		return
 	}
 

@@ -17,7 +17,7 @@ func NewChatHandler(service *chatservice.Service) *ChatHandler {
 }
 
 type chatRequest struct {
-	UserID   string     `json:"user_id" binding:"required"`
+	UserID   string     `json:"user_id"`
 	Message  string     `json:"message" binding:"required"`
 	LoggedAt *time.Time `json:"logged_at"`
 }
@@ -29,9 +29,8 @@ func (h *ChatHandler) PostChat(c *gin.Context) {
 		return
 	}
 
-	userID, ok := normalizeRequiredUserID(req.UserID)
+	userID, ok := resolveUserID(c, req.UserID, false)
 	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id is required"})
 		return
 	}
 

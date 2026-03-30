@@ -21,7 +21,7 @@ func NewWeightHandler(service *weightservice.Service) *WeightHandler {
 }
 
 type createWeightEntryRequest struct {
-	UserID   string    `json:"user_id" binding:"required"`
+	UserID   string    `json:"user_id"`
 	Weight   float64   `json:"weight" binding:"required"`
 	Unit     string    `json:"unit" binding:"required,oneof=kg lb"`
 	LoggedAt time.Time `json:"logged_at" binding:"required"`
@@ -46,9 +46,8 @@ func (h *WeightHandler) CreateWeightEntry(c *gin.Context) {
 		return
 	}
 
-	userID, ok := normalizeRequiredUserID(req.UserID)
+	userID, ok := resolveUserID(c, req.UserID, false)
 	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id is required"})
 		return
 	}
 

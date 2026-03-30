@@ -20,7 +20,7 @@ func NewMealHandler(service *mealservice.Service) *MealHandler {
 }
 
 type createMealRequest struct {
-	UserID  string    `json:"user_id" binding:"required"`
+	UserID  string    `json:"user_id"`
 	Source  string    `json:"source" binding:"required"`
 	RawText string    `json:"raw_text" binding:"required"`
 	EatenAt time.Time `json:"eaten_at"`
@@ -52,7 +52,7 @@ type mealResponseItem struct {
 }
 
 type editMealTimeRequest struct {
-	UserID  string    `json:"user_id" binding:"required"`
+	UserID  string    `json:"user_id"`
 	EatenAt time.Time `json:"eaten_at" binding:"required"`
 }
 
@@ -70,9 +70,9 @@ func (h *MealHandler) CreateMeal(c *gin.Context) {
 		return
 	}
 
-	userID, ok := normalizeRequiredUserID(req.UserID)
+	userID, ok := resolveUserID(c, req.UserID, false)
 	if !ok || strings.TrimSpace(req.RawText) == "" || strings.TrimSpace(req.Source) == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id, source, and raw_text are required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "source and raw_text are required"})
 		return
 	}
 
@@ -139,9 +139,8 @@ func (h *MealHandler) EditMealTime(c *gin.Context) {
 		return
 	}
 
-	userID, ok := normalizeRequiredUserID(req.UserID)
+	userID, ok := resolveUserID(c, req.UserID, false)
 	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id is required"})
 		return
 	}
 
