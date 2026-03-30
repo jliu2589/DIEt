@@ -37,7 +37,7 @@ export type MealItemView = {
   canonical_name: string;
   logged_at: string;
   eaten_at: string;
-  time_source: string;
+  time_source?: string | null;
   source: string;
   confidence_score?: number;
   calories_kcal: number | null;

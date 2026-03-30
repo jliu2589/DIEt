@@ -232,28 +232,32 @@ export default function HomePage() {
           </div>
         ) : (
           <div className="space-y-2.5 sm:space-y-3">
-            {recentMeals.map((meal) => (
-            <article
-              key={meal.meal_event_id}
-              className="rounded-xl border border-stone-200 bg-white/95 px-3 py-3 shadow-sm sm:px-4"
-            >
-              <div className="sm:flex sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-[0.08em] text-stone-500">{formatMealTime(meal.eaten_at)}</p>
-                  <p className="mt-1 font-medium text-stone-900">{meal.canonical_name}</p>
-                </div>
-                <p className="mt-2 inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800 sm:mt-0">
-                  {toNumber(meal.calories_kcal)} kcal
-                </p>
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-                <MacroPill label="Protein" value={`${toNumber(meal.protein_g)}g`} />
-                <MacroPill label="Carbs" value={`${toNumber(meal.carbohydrate_g)}g`} />
-                <MacroPill label="Fat" value={`${toNumber(meal.fat_g)}g`} />
-                <MacroPill label="Calories" value={`${toNumber(meal.calories_kcal)}`} />
-              </div>
-            </article>
-            ))}
+            {recentMeals.map((meal) => {
+              const timeHint = getMealTimeHint(meal.time_source);
+              return (
+                <article
+                  key={meal.meal_event_id}
+                  className="rounded-xl border border-stone-200 bg-white/95 px-3 py-3 shadow-sm sm:px-4"
+                >
+                  <div className="sm:flex sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-[0.08em] text-stone-500">{formatMealTime(meal.eaten_at)}</p>
+                      {timeHint && <p className="mt-0.5 text-[11px] text-stone-500">{timeHint}</p>}
+                      <p className="mt-1 font-medium text-stone-900">{meal.canonical_name}</p>
+                    </div>
+                    <p className="mt-2 inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800 sm:mt-0">
+                      {toNumber(meal.calories_kcal)} kcal
+                    </p>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                    <MacroPill label="Protein" value={`${toNumber(meal.protein_g)}g`} />
+                    <MacroPill label="Carbs" value={`${toNumber(meal.carbohydrate_g)}g`} />
+                    <MacroPill label="Fat" value={`${toNumber(meal.fat_g)}g`} />
+                    <MacroPill label="Calories" value={`${toNumber(meal.calories_kcal)}`} />
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
       </SectionCard>
@@ -425,9 +429,21 @@ function formatMealTime(timestamp: string) {
     return "--:--";
   }
   return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
     hour: "numeric",
     minute: "2-digit"
   }).format(parsed);
+}
+
+function getMealTimeHint(timeSource?: string | null) {
+  if (!timeSource) {
+    return null;
+  }
+  if (timeSource === "default_now") {
+    return "Logged for now. Edit time if needed.";
+  }
+  return null;
 }
 
 function formatTrendLabel(date: string) {

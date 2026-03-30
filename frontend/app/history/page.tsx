@@ -5,8 +5,27 @@ import { getRecentMeals, type RecentMeal } from "@/lib/api";
 
 const USER_ID = "demo-user";
 
-function formatDateTime(value: string) {
-  return new Date(value).toLocaleString();
+function formatPrimaryMealTime(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "—";
+  }
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(parsed);
+}
+
+function getTimeHint(timeSource?: string | null) {
+  if (!timeSource) {
+    return null;
+  }
+  if (timeSource === "default_now") {
+    return "Logged for now. Edit time if needed.";
+  }
+  return null;
 }
 
 function renderMacro(value: number | null) {
@@ -73,20 +92,22 @@ export default function HistoryPage() {
             )}
 
             {!loading &&
-              meals.map((meal) => (
-                <tr key={meal.meal_event_id} className="border-t border-slate-100">
-                  <td className="px-4 py-3">{meal.canonical_name}</td>
-                  <td className="px-4 py-3">
-                    <div>{formatDateTime(meal.eaten_at)}</div>
-                    <div className="text-xs text-slate-500">Logged: {formatDateTime(meal.logged_at)}</div>
-                    {meal.time_source && <div className="text-xs text-slate-500">Source: {meal.time_source}</div>}
-                  </td>
-                  <td className="px-4 py-3">{meal.calories_kcal ?? "—"}</td>
-                  <td className="px-4 py-3">{renderMacro(meal.protein_g)}</td>
-                  <td className="px-4 py-3">{renderMacro(meal.carbohydrate_g)}</td>
-                  <td className="px-4 py-3">{renderMacro(meal.fat_g)}</td>
-                </tr>
-              ))}
+              meals.map((meal) => {
+                const timeHint = getTimeHint(meal.time_source);
+                return (
+                  <tr key={meal.meal_event_id} className="border-t border-slate-100">
+                    <td className="px-4 py-3">{meal.canonical_name}</td>
+                    <td className="px-4 py-3">
+                      <div>{formatPrimaryMealTime(meal.eaten_at)}</div>
+                      {timeHint && <div className="text-xs text-slate-500">{timeHint}</div>}
+                    </td>
+                    <td className="px-4 py-3">{meal.calories_kcal ?? "—"}</td>
+                    <td className="px-4 py-3">{renderMacro(meal.protein_g)}</td>
+                    <td className="px-4 py-3">{renderMacro(meal.carbohydrate_g)}</td>
+                    <td className="px-4 py-3">{renderMacro(meal.fat_g)}</td>
+                  </tr>
+                );
+              })}
           </tbody>
         </table>
       </section>
