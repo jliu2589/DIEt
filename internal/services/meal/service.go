@@ -283,12 +283,32 @@ func (s *Service) EditMealTime(ctx context.Context, mealEventID int64, userID st
 		return nil, nil
 	}
 
+	oldDate := dateOnly(updated.PreviousEatenAt)
+	newDate := dateOnly(updated.UpdatedEatenAt)
+	if err := s.dailySummaryRepo.ReconcileForUserDate(ctx, userID, oldDate); err != nil {
+		return nil, fmt.Errorf("reconcile old summary date: %w", err)
+	}
+	if !oldDate.Equal(newDate) {
+		if err := s.dailySummaryRepo.ReconcileForUserDate(ctx, userID, newDate); err != nil {
+			return nil, fmt.Errorf("reconcile new summary date: %w", err)
+		}
+	}
+
 	return &EditMealTimeResult{
 		MealEventID:   updated.MealEventID,
 		CanonicalName: updated.CanonicalName,
-		EatenAt:       updated.EatenAt,
+		EatenAt:       updated.UpdatedEatenAt,
 		TimeSource:    updated.TimeSource,
 	}, nil
+}
+
+// ReconcileDailySummaryForDate recomputes a user's daily summary from meal history.
+// This is intended for edit/delete maintenance flows.
+func (s *Service) ReconcileDailySummaryForDate(ctx context.Context, userID string, date time.Time) error {
+	if strings.TrimSpace(userID) == "" {
+		return fmt.Errorf("user_id is required")
+	}
+	return s.dailySummaryRepo.ReconcileForUserDate(ctx, userID, date)
 }
 
 func (s *Service) processFromCache(ctx context.Context, event *models.MealEvent, cached *models.MealMemory) (*ProcessTextMealResult, error) {

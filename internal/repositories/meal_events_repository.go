@@ -29,10 +29,11 @@ type RecentMeal struct {
 }
 
 type MealTimeUpdate struct {
-	MealEventID   int64
-	CanonicalName string
-	EatenAt       time.Time
-	TimeSource    string
+	MealEventID     int64
+	CanonicalName   string
+	PreviousEatenAt time.Time
+	UpdatedEatenAt  time.Time
+	TimeSource      string
 }
 
 func NewMealEventsRepository(pool *pgxpool.Pool) *MealEventsRepository {
@@ -187,9 +188,15 @@ func (r *MealEventsRepository) ListRecentByUserID(ctx context.Context, userID st
 
 func (r *MealEventsRepository) UpdateEatenAtByIDAndUserID(ctx context.Context, mealEventID int64, userID string, eatenAt time.Time) (*MealTimeUpdate, error) {
 	const q = `
+		WITH previous AS (
+			SELECT me.id, me.user_id, me.eaten_at
+			FROM meal_events me
+			WHERE me.id = $1 AND me.user_id = $2
+		)
 		UPDATE meal_events me
 		SET eaten_at = $3, time_source = 'edited', updated_at = NOW()
-		WHERE me.id = $1 AND me.user_id = $2
+		FROM previous p
+		WHERE me.id = p.id AND me.user_id = p.user_id
 		RETURNING
 			me.id,
 			COALESCE((
@@ -198,6 +205,7 @@ func (r *MealEventsRepository) UpdateEatenAtByIDAndUserID(ctx context.Context, m
 				WHERE ma.meal_event_id = me.id
 				LIMIT 1
 			), ''),
+			p.eaten_at,
 			me.eaten_at,
 			me.time_source
 	`
@@ -206,7 +214,8 @@ func (r *MealEventsRepository) UpdateEatenAtByIDAndUserID(ctx context.Context, m
 	if err := r.db.QueryRow(ctx, q, mealEventID, userID, eatenAt).Scan(
 		&out.MealEventID,
 		&out.CanonicalName,
-		&out.EatenAt,
+		&out.PreviousEatenAt,
+		&out.UpdatedEatenAt,
 		&out.TimeSource,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

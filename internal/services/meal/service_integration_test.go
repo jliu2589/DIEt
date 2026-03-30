@@ -178,4 +178,61 @@ func TestProcessTextMeal_OpenAIFallbackDisabledReturnsClearError(t *testing.T) {
 	}
 }
 
+func TestEditMealTime_ReconcilesOldAndNewSummaryDates(t *testing.T) {
+	pool := testutil.OpenTestDB(t)
+	t.Cleanup(pool.Close)
+	analyzer := &analyzerStub{resp: openai.MealTextAnalysis{
+		CanonicalName: "reconcile meal",
+		Nutrition: openai.NutritionV1{
+			CaloriesKcal: float64Ptr(450),
+			ProteinG:     float64Ptr(30),
+		},
+	}}
+	svc := newMealServiceForTest(pool, analyzer, "meal_log")
+	repos := repositories.New(pool)
+
+	oldDate := time.Date(2026, 3, 29, 12, 0, 0, 0, time.UTC)
+	created, err := svc.ProcessTextMeal(context.Background(), ProcessTextMealInput{
+		UserID:  "u1",
+		Source:  "web",
+		RawText: "reconcile meal",
+		EatenAt: oldDate,
+	})
+	if err != nil {
+		t.Fatalf("ProcessTextMeal: %v", err)
+	}
+
+	newDate := oldDate.AddDate(0, 0, 1)
+	_, err = svc.EditMealTime(context.Background(), created.MealEventID, "u1", newDate)
+	if err != nil {
+		t.Fatalf("EditMealTime: %v", err)
+	}
+
+	oldSummary, err := repos.DailyNutritionSummary.GetByUserIDAndDate(context.Background(), "u1", oldDate)
+	if err != nil {
+		t.Fatalf("get old summary: %v", err)
+	}
+	if oldSummary != nil {
+		t.Fatalf("expected old summary to be removed after reconciliation")
+	}
+
+	newSummary, err := repos.DailyNutritionSummary.GetByUserIDAndDate(context.Background(), "u1", newDate)
+	if err != nil {
+		t.Fatalf("get new summary: %v", err)
+	}
+	if newSummary == nil {
+		t.Fatalf("expected new summary to exist after reconciliation")
+	}
+	if valueOrZero(newSummary.CaloriesKcal) <= 0 {
+		t.Fatalf("expected new summary calories to be populated")
+	}
+}
+
+func valueOrZero(v *float64) float64 {
+	if v == nil {
+		return 0
+	}
+	return *v
+}
+
 func strPtr(v string) *string { return &v }
