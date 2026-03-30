@@ -9,12 +9,6 @@ const goals = [
   { label: "Fat", consumed: 52, target: 75, unit: "g" }
 ];
 
-const chatMessages = [
-  { id: 1, from: "assistant", text: "Good morning — you’re on track. Want a high-protein lunch idea?" },
-  { id: 2, from: "user", text: "Yes, something quick." },
-  { id: 3, from: "assistant", text: "Try grilled chicken, quinoa, and roasted vegetables (~520 kcal, 45g protein)." }
-] as const;
-
 const todaysMeals = [
   { id: 1, name: "Greek Yogurt + Berries", time: "8:10 AM", calories: 320, protein: 28, carbs: 32, fat: 9 },
   { id: 2, name: "Salmon Rice Bowl", time: "12:42 PM", calories: 610, protein: 41, carbs: 58, fat: 23 },
@@ -97,23 +91,23 @@ export default function HomePage() {
   }
 
   return (
-    <main className="space-y-5 pb-8">
-      <section className="rounded-2xl border border-stone-200/80 bg-gradient-to-b from-stone-50 to-amber-50/40 p-4 shadow-sm sm:p-6">
+    <main className="mx-auto w-full max-w-5xl space-y-6 px-4 pb-10 pt-3 sm:space-y-7 sm:px-6 lg:space-y-8 lg:px-8">
+      <section className="rounded-3xl border border-stone-200/80 bg-gradient-to-b from-stone-50 to-amber-50/40 p-5 shadow-sm sm:p-7">
         <p className="text-xs font-medium uppercase tracking-[0.14em] text-stone-500">Today’s Goals & Totals</p>
-        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-stone-900">Nutrition Dashboard</h2>
-        <p className="mt-1 text-sm text-stone-600">Quick progress snapshot against your daily targets.</p>
-        <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-stone-900 sm:text-3xl">Nutrition Dashboard</h2>
+        <p className="mt-1 text-sm text-stone-600 sm:text-base">Quick progress snapshot against your daily targets.</p>
+        <div className="mt-5 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
           {goals.map((goal) => (
             <GoalCard key={goal.label} {...goal} />
           ))}
         </div>
       </section>
 
-      <section className="rounded-2xl border border-amber-200/70 bg-gradient-to-b from-white to-amber-50/70 p-4 shadow-sm sm:p-6">
-        <div className="mb-3 space-y-1">
+      <section className="rounded-3xl border border-amber-200/70 bg-gradient-to-b from-white to-amber-50/70 p-5 shadow-sm sm:p-7">
+        <div className="mb-4 space-y-1.5">
           <p className="text-xs font-medium uppercase tracking-[0.14em] text-amber-700/80">Main Chat</p>
-          <h3 className="text-xl font-semibold tracking-tight text-stone-900 sm:text-2xl">Tell me what you need</h3>
-          <p className="text-sm text-stone-600">
+          <h3 className="text-2xl font-semibold tracking-tight text-stone-900">Tell me what you need</h3>
+          <p className="max-w-2xl text-sm text-stone-600 sm:text-base">
             Log meals, track your weight, ask for recommendations, or just chat about your nutrition day.
           </p>
         </div>
@@ -122,20 +116,20 @@ export default function HomePage() {
           <label htmlFor="chat-input" className="sr-only">
             Main nutrition chat input
           </label>
-          <div className="rounded-2xl border border-stone-300 bg-white p-2 shadow-sm focus-within:border-amber-400">
+          <div className="rounded-2xl border border-stone-300 bg-white p-2 shadow-sm focus-within:border-amber-400 sm:p-3">
             <textarea
               id="chat-input"
               value={chatInput}
               onChange={(event) => setChatInput(event.target.value)}
               rows={3}
               placeholder="Log a meal, your weight, or ask what to eat next"
-              className="w-full resize-none rounded-xl border-none bg-transparent px-2 py-1 text-sm text-stone-800 outline-none placeholder:text-stone-400 sm:text-base"
+              className="w-full resize-none rounded-xl border-none bg-transparent px-2 py-1 text-sm leading-relaxed text-stone-800 outline-none placeholder:text-stone-400 sm:text-base"
             />
             <div className="flex items-center justify-between gap-3 px-2 pb-1 pt-2">
-              <p className="text-xs text-stone-500">Try: “Lunch was chicken bowl” or “I weigh 176.2 lb”</p>
+              <p className="text-xs text-stone-500 sm:text-sm">Try: “Lunch was chicken bowl” or “I weigh 176.2 lb”</p>
               <button
                 type="submit"
-                className="shrink-0 rounded-xl bg-stone-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-stone-700"
+                className="shrink-0 rounded-xl bg-stone-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-stone-700 sm:px-5"
               >
                 Send
               </button>
@@ -154,31 +148,8 @@ export default function HomePage() {
         )}
       </section>
 
-      <SectionCard title="Coach Chat" subtitle="Placeholder conversation UI (no backend wiring yet)">
-        <div className="space-y-3">
-          <div className="space-y-2 rounded-xl border border-stone-200 bg-white/70 p-3">
-            {chatMessages.map((message) => (
-              <ChatBubble key={message.id} from={message.from} text={message.text} />
-            ))}
-          </div>
-          <div className="flex items-center gap-2">
-            <input
-              disabled
-              placeholder="Type a message…"
-              className="w-full rounded-xl border border-stone-300 bg-stone-100 px-3 py-2 text-sm text-stone-600 placeholder:text-stone-400"
-            />
-            <button
-              disabled
-              className="rounded-xl border border-stone-300 bg-stone-100 px-4 py-2 text-sm font-medium text-stone-500"
-            >
-              Send
-            </button>
-          </div>
-        </div>
-      </SectionCard>
-
       <SectionCard title="Today’s Meals" subtitle="Snapshot list with placeholder totals">
-        <div className="space-y-2">
+        <div className="space-y-2.5 sm:space-y-3">
           {todaysMeals.map((meal) => (
             <article
               key={meal.id}
@@ -332,10 +303,10 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-stone-200/80 bg-stone-50/60 p-4 shadow-sm sm:p-5">
-      <header className="mb-3">
-        <h3 className="text-lg font-semibold text-stone-900">{title}</h3>
-        <p className="text-sm text-stone-600">{subtitle}</p>
+    <section className="rounded-3xl border border-stone-200/80 bg-stone-50/65 p-5 shadow-sm sm:p-6">
+      <header className="mb-4">
+        <h3 className="text-xl font-semibold tracking-tight text-stone-900">{title}</h3>
+        <p className="mt-1 text-sm text-stone-600 sm:text-base">{subtitle}</p>
       </header>
       {children}
     </section>
@@ -369,20 +340,5 @@ function GoalCard({
       </div>
       <p className="mt-1 text-[11px] text-stone-500">{pct}% complete</p>
     </article>
-  );
-}
-
-function ChatBubble({ from, text }: { from: "assistant" | "user"; text: string }) {
-  const isUser = from === "user";
-  return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <p
-        className={`max-w-[88%] rounded-2xl px-3 py-2 text-sm leading-relaxed ${
-          isUser ? "bg-stone-900 text-stone-50" : "border border-stone-200 bg-stone-50 text-stone-800"
-        }`}
-      >
-        {text}
-      </p>
-    </div>
   );
 }
