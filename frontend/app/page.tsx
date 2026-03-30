@@ -1,3 +1,7 @@
+"use client";
+
+import { FormEvent, useState } from "react";
+
 const goals = [
   { label: "Calories", consumed: 1380, target: 2500, unit: "kcal" },
   { label: "Protein", consumed: 92, target: 160, unit: "g" },
@@ -20,6 +24,19 @@ const todaysMeals = [
 const weeklyTrend = [68, 72, 65, 74, 70, 78, 76];
 
 export default function HomePage() {
+  const [chatInput, setChatInput] = useState("");
+  const [drafts, setDrafts] = useState<string[]>([]);
+
+  function onSubmitChat(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmed = chatInput.trim();
+    if (!trimmed) {
+      return;
+    }
+    setDrafts((prev) => [trimmed, ...prev].slice(0, 3));
+    setChatInput("");
+  }
+
   return (
     <main className="space-y-5 pb-8">
       <section className="rounded-2xl border border-stone-200/80 bg-gradient-to-b from-stone-50 to-amber-50/40 p-4 shadow-sm sm:p-6">
@@ -31,6 +48,51 @@ export default function HomePage() {
             <GoalCard key={goal.label} {...goal} />
           ))}
         </div>
+      </section>
+
+      <section className="rounded-2xl border border-amber-200/70 bg-gradient-to-b from-white to-amber-50/70 p-4 shadow-sm sm:p-6">
+        <div className="mb-3 space-y-1">
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-amber-700/80">Main Chat</p>
+          <h3 className="text-xl font-semibold tracking-tight text-stone-900 sm:text-2xl">Tell me what you need</h3>
+          <p className="text-sm text-stone-600">
+            Log meals, track your weight, ask for recommendations, or just chat about your nutrition day.
+          </p>
+        </div>
+
+        <form onSubmit={onSubmitChat} className="space-y-3">
+          <label htmlFor="chat-input" className="sr-only">
+            Main nutrition chat input
+          </label>
+          <div className="rounded-2xl border border-stone-300 bg-white p-2 shadow-sm focus-within:border-amber-400">
+            <textarea
+              id="chat-input"
+              value={chatInput}
+              onChange={(event) => setChatInput(event.target.value)}
+              rows={3}
+              placeholder="Log a meal, your weight, or ask what to eat next"
+              className="w-full resize-none rounded-xl border-none bg-transparent px-2 py-1 text-sm text-stone-800 outline-none placeholder:text-stone-400 sm:text-base"
+            />
+            <div className="flex items-center justify-between gap-3 px-2 pb-1 pt-2">
+              <p className="text-xs text-stone-500">Try: “Lunch was chicken bowl” or “I weigh 176.2 lb”</p>
+              <button
+                type="submit"
+                className="shrink-0 rounded-xl bg-stone-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-stone-700"
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        </form>
+
+        {drafts.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {drafts.map((draft, idx) => (
+              <p key={`${draft}-${idx}`} className="rounded-full border border-stone-200 bg-white px-3 py-1 text-xs text-stone-600">
+                {draft}
+              </p>
+            ))}
+          </div>
+        )}
       </section>
 
       <SectionCard title="Coach Chat" subtitle="Placeholder conversation UI (no backend wiring yet)">
