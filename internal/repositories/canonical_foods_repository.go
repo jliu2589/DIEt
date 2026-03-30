@@ -229,3 +229,90 @@ func (r *CanonicalFoodsRepository) ListRecommendationCandidates(ctx context.Cont
 
 	return out, nil
 }
+
+func (r *CanonicalFoodsRepository) SearchByName(ctx context.Context, q string, limit int) ([]models.CanonicalFoodWithNutrition, error) {
+	query := strings.TrimSpace(q)
+	if query == "" {
+		return []models.CanonicalFoodWithNutrition{}, nil
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	const sql = `
+		SELECT
+			f.id,
+			f.canonical_name,
+			f.default_amount,
+			f.default_unit,
+			f.category,
+			f.source_type,
+			fn.calories_kcal,
+			fn.protein_g,
+			fn.carbohydrate_g,
+			fn.fat_g,
+			fn.fiber_g,
+			fn.sugars_g,
+			fn.saturated_fat_g,
+			fn.sodium_mg,
+			fn.potassium_mg,
+			fn.calcium_mg,
+			fn.magnesium_mg,
+			fn.iron_mg,
+			fn.zinc_mg,
+			fn.vitamin_d_mcg,
+			fn.vitamin_b12_mcg,
+			fn.folate_b9_mcg,
+			fn.vitamin_c_mg,
+			f.created_at,
+			f.updated_at
+		FROM foods f
+		LEFT JOIN food_nutrition fn ON fn.food_id = f.id
+		WHERE f.canonical_name ILIKE '%' || $1 || '%'
+		ORDER BY f.canonical_name ASC, f.id ASC
+		LIMIT $2
+	`
+	rows, err := r.db.Query(ctx, sql, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("search canonical foods by name: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]models.CanonicalFoodWithNutrition, 0, limit)
+	for rows.Next() {
+		var item models.CanonicalFoodWithNutrition
+		if err := rows.Scan(
+			&item.ID,
+			&item.CanonicalName,
+			&item.DefaultAmount,
+			&item.DefaultUnit,
+			&item.Category,
+			&item.SourceType,
+			&item.CaloriesKcal,
+			&item.ProteinG,
+			&item.CarbohydrateG,
+			&item.FatG,
+			&item.FiberG,
+			&item.SugarsG,
+			&item.SaturatedFatG,
+			&item.SodiumMg,
+			&item.PotassiumMg,
+			&item.CalciumMg,
+			&item.MagnesiumMg,
+			&item.IronMg,
+			&item.ZincMg,
+			&item.VitaminDMcg,
+			&item.VitaminB12Mcg,
+			&item.FolateB9Mcg,
+			&item.VitaminCMg,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan canonical food search row: %w", err)
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate canonical food search rows: %w", err)
+	}
+	return out, nil
+}

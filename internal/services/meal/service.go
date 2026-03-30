@@ -93,6 +93,31 @@ type EditMealTimeResult struct {
 	TimeSource    string    `json:"time_source"`
 }
 
+type MealDetailResult struct {
+	MealEventID   int64                  `json:"meal_event_id"`
+	CanonicalName string                 `json:"canonical_name"`
+	LoggedAt      time.Time              `json:"logged_at"`
+	EatenAt       time.Time              `json:"eaten_at"`
+	TimeSource    string                 `json:"time_source"`
+	Source        string                 `json:"source"`
+	RawText       string                 `json:"raw_text,omitempty"`
+	Assumptions   []string               `json:"assumptions,omitempty"`
+	Items         []models.MealItem      `json:"items,omitempty"`
+	Nutrition     models.NutritionFields `json:"nutrition"`
+}
+
+type UpdateMealInput struct {
+	MealEventID   int64
+	UserID        string
+	RawText       *string
+	CanonicalName *string
+	CaloriesKcal  *float64
+	ProteinG      *float64
+	CarbohydrateG *float64
+	FatG          *float64
+	EatenAt       *time.Time
+}
+
 func NewService(
 	mealEventsRepo *repositories.MealEventsRepository,
 	mealAnalysisRepo *repositories.MealAnalysisRepository,
@@ -309,6 +334,131 @@ func (s *Service) ReconcileDailySummaryForDate(ctx context.Context, userID strin
 		return fmt.Errorf("user_id is required")
 	}
 	return s.dailySummaryRepo.ReconcileForUserDate(ctx, userID, date)
+}
+
+func (s *Service) GetMealByID(ctx context.Context, mealEventID int64, userID string) (*MealDetailResult, error) {
+	if mealEventID <= 0 {
+		return nil, fmt.Errorf("meal_event_id must be greater than 0")
+	}
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, fmt.Errorf("user_id is required")
+	}
+
+	event, err := s.mealEventsRepo.GetByIDAndUserID(ctx, mealEventID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get meal event: %w", err)
+	}
+	if event == nil {
+		return nil, nil
+	}
+	analysis, err := s.mealAnalysisRepo.GetByMealEventIDAndUserID(ctx, mealEventID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get meal analysis: %w", err)
+	}
+	if analysis == nil {
+		return nil, nil
+	}
+
+	out := &MealDetailResult{
+		MealEventID:   event.ID,
+		CanonicalName: analysis.CanonicalName,
+		LoggedAt:      event.LoggedAt.UTC(),
+		EatenAt:       event.EatenAt.UTC(),
+		TimeSource:    event.TimeSource,
+		Source:        event.Source,
+		Nutrition:     analysis.NutritionFields,
+	}
+	if event.RawText != nil {
+		out.RawText = *event.RawText
+	}
+	_ = json.Unmarshal(analysis.AssumptionsJSON, &out.Assumptions)
+	_ = json.Unmarshal(analysis.ItemsJSON, &out.Items)
+	return out, nil
+}
+
+func (s *Service) UpdateMeal(ctx context.Context, input UpdateMealInput) (*MealDetailResult, error) {
+	if input.MealEventID <= 0 {
+		return nil, fmt.Errorf("meal_event_id must be greater than 0")
+	}
+	input.UserID = strings.TrimSpace(input.UserID)
+	if input.UserID == "" {
+		return nil, fmt.Errorf("user_id is required")
+	}
+	before, err := s.GetMealByID(ctx, input.MealEventID, input.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if before == nil {
+		return nil, nil
+	}
+
+	if input.RawText != nil {
+		raw := strings.TrimSpace(*input.RawText)
+		if raw != "" {
+			if err := s.mealEventsRepo.UpdateRawTextByIDAndUserID(ctx, input.MealEventID, input.UserID, raw); err != nil {
+				return nil, fmt.Errorf("update meal raw_text: %w", err)
+			}
+		}
+	}
+
+	if input.EatenAt != nil && !input.EatenAt.IsZero() {
+		if _, err := s.EditMealTime(ctx, input.MealEventID, input.UserID, input.EatenAt.UTC()); err != nil {
+			return nil, err
+		}
+	}
+
+	updateModel := models.MealAnalysis{
+		MealEventID:   input.MealEventID,
+		UserID:        input.UserID,
+		CanonicalName: strings.TrimSpace(valueOrEmpty(input.CanonicalName)),
+		NutritionFields: models.NutritionFields{
+			CaloriesKcal:  input.CaloriesKcal,
+			ProteinG:      input.ProteinG,
+			CarbohydrateG: input.CarbohydrateG,
+			FatG:          input.FatG,
+		},
+	}
+	if err := s.mealAnalysisRepo.UpdateEditableByMealEventIDAndUserID(ctx, updateModel); err != nil {
+		return nil, fmt.Errorf("update meal analysis: %w", err)
+	}
+
+	reconcileDate := before.EatenAt
+	if input.EatenAt != nil && !input.EatenAt.IsZero() {
+		reconcileDate = input.EatenAt.UTC()
+	}
+	if err := s.ReconcileDailySummaryForDate(ctx, input.UserID, reconcileDate); err != nil {
+		return nil, fmt.Errorf("reconcile updated summary date: %w", err)
+	}
+	return s.GetMealByID(ctx, input.MealEventID, input.UserID)
+}
+
+func (s *Service) DeleteMeal(ctx context.Context, mealEventID int64, userID string) error {
+	if mealEventID <= 0 {
+		return fmt.Errorf("meal_event_id must be greater than 0")
+	}
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return fmt.Errorf("user_id is required")
+	}
+	deleted, err := s.mealEventsRepo.DeleteByIDAndUserID(ctx, mealEventID, userID)
+	if err != nil {
+		return fmt.Errorf("delete meal: %w", err)
+	}
+	if deleted == nil {
+		return nil
+	}
+	if err := s.dailySummaryRepo.ReconcileForUserDate(ctx, userID, deleted.EatenAt); err != nil {
+		return fmt.Errorf("reconcile summary after delete: %w", err)
+	}
+	return nil
+}
+
+func valueOrEmpty(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }
 
 func (s *Service) processFromCache(ctx context.Context, event *models.MealEvent, cached *models.MealMemory) (*ProcessTextMealResult, error) {

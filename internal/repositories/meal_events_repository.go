@@ -119,6 +119,39 @@ func (r *MealEventsRepository) GetByID(ctx context.Context, id int64) (*models.M
 	return &out, nil
 }
 
+func (r *MealEventsRepository) GetByIDAndUserID(ctx context.Context, id int64, userID string) (*models.MealEvent, error) {
+	const q = `
+		SELECT id, user_id, source, source_message_id, event_type, raw_text, image_url, logged_at, eaten_at, time_source, processing_status, fingerprint_hash, created_at, updated_at
+		FROM meal_events
+		WHERE id = $1 AND user_id = $2
+	`
+
+	var out models.MealEvent
+	if err := r.db.QueryRow(ctx, q, id, userID).Scan(
+		&out.ID,
+		&out.UserID,
+		&out.Source,
+		&out.SourceMessageID,
+		&out.EventType,
+		&out.RawText,
+		&out.ImageURL,
+		&out.LoggedAt,
+		&out.EatenAt,
+		&out.TimeSource,
+		&out.ProcessingStatus,
+		&out.FingerprintHash,
+		&out.CreatedAt,
+		&out.UpdatedAt,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get meal_event by id and user_id: %w", err)
+	}
+
+	return &out, nil
+}
+
 func (r *MealEventsRepository) UpdateProcessingStatus(ctx context.Context, id int64, status string) error {
 	const q = `
 		UPDATE meal_events
@@ -130,6 +163,18 @@ func (r *MealEventsRepository) UpdateProcessingStatus(ctx context.Context, id in
 		return fmt.Errorf("update meal_event processing status: %w", err)
 	}
 
+	return nil
+}
+
+func (r *MealEventsRepository) UpdateRawTextByIDAndUserID(ctx context.Context, mealEventID int64, userID, rawText string) error {
+	const q = `
+		UPDATE meal_events
+		SET raw_text = $3, updated_at = NOW()
+		WHERE id = $1 AND user_id = $2
+	`
+	if _, err := r.db.Exec(ctx, q, mealEventID, userID, rawText); err != nil {
+		return fmt.Errorf("update meal_event raw_text by id and user_id: %w", err)
+	}
 	return nil
 }
 
@@ -225,4 +270,25 @@ func (r *MealEventsRepository) UpdateEatenAtByIDAndUserID(ctx context.Context, m
 	}
 
 	return &out, nil
+}
+
+func (r *MealEventsRepository) DeleteByIDAndUserID(ctx context.Context, mealEventID int64, userID string) (*models.MealEvent, error) {
+	event, err := r.GetByIDAndUserID(ctx, mealEventID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if event == nil {
+		return nil, nil
+	}
+
+	const deleteAnalysisQ = `DELETE FROM meal_analysis WHERE meal_event_id = $1 AND user_id = $2`
+	if _, err := r.db.Exec(ctx, deleteAnalysisQ, mealEventID, userID); err != nil {
+		return nil, fmt.Errorf("delete meal_analysis by meal_event_id and user_id: %w", err)
+	}
+
+	const deleteEventQ = `DELETE FROM meal_events WHERE id = $1 AND user_id = $2`
+	if _, err := r.db.Exec(ctx, deleteEventQ, mealEventID, userID); err != nil {
+		return nil, fmt.Errorf("delete meal_event by id and user_id: %w", err)
+	}
+	return event, nil
 }

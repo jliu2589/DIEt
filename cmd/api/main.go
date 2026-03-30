@@ -119,6 +119,8 @@ func main() {
 		SummaryHandler:  handlers.NewSummaryHandler(repos.DailyNutritionSummary),
 		Recommendations: handlers.NewRecommendationsHandler(recommendationsSvc),
 		Dashboard:       handlers.NewDashboardHandler(repos.DailyNutritionSummary, mealSvc, recommendationsSvc),
+		Foods:           handlers.NewFoodsHandler(repos.CanonicalFoods),
+		ReusableMeals:   handlers.NewReusableMealsHandler(repos.Meals),
 		UserSettings:    handlers.NewUserSettingsHandler(userSettingsSvc),
 		WeightHandler:   handlers.NewWeightHandler(weightSvc),
 		TrendsHandler:   handlers.NewTrendsHandler(trendsSvc),

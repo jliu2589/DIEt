@@ -68,6 +68,57 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/MealItemView'
+  /v1/meals/{mealEventID}:
+    get:
+      summary: Get one meal event detail
+      parameters:
+        - in: path
+          name: mealEventID
+          required: true
+          schema: { type: integer, format: int64 }
+        - in: query
+          name: user_id
+          schema: { type: string }
+      responses:
+        '200':
+          description: Meal detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MealDetailResponse'
+    patch:
+      summary: Patch editable meal fields
+      parameters:
+        - in: path
+          name: mealEventID
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMealRequest'
+      responses:
+        '200':
+          description: Updated meal detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MealDetailResponse'
+    delete:
+      summary: Delete meal event
+      parameters:
+        - in: path
+          name: mealEventID
+          required: true
+          schema: { type: integer, format: int64 }
+        - in: query
+          name: user_id
+          schema: { type: string }
+      responses:
+        '204':
+          description: Deleted
   /v1/daily-summary:
     get:
       summary: Daily nutrition summary
@@ -144,6 +195,30 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RecommendationsResponse'
+  /v1/foods/search:
+    get:
+      summary: Search canonical foods
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100 }
+      responses:
+        '200':
+          description: Food search result
+  /v1/reusable-meals:
+    get:
+      summary: List reusable meals
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100 }
+      responses:
+        '200':
+          description: Reusable meal list
 components:
   schemas:
     NutritionTotals:
@@ -269,3 +344,35 @@ components:
               source: { type: string, enum: [reusable_meal, canonical_food, meal_memory] }
               source_id: { type: integer, format: int64 }
               recommendation_score: { type: number }
+    MealDetailResponse:
+      type: object
+      properties:
+        meal_event_id: { type: integer, format: int64 }
+        canonical_name: { type: string }
+        logged_at: { type: string, format: date-time }
+        eaten_at: { type: string, format: date-time }
+        time_source: { type: string }
+        source: { type: string }
+        raw_text: { type: string, nullable: true }
+        assumptions:
+          type: array
+          items: { type: string }
+        items:
+          type: array
+          items:
+            type: object
+        calories_kcal: { type: number, nullable: true }
+        protein_g: { type: number, nullable: true }
+        carbohydrate_g: { type: number, nullable: true }
+        fat_g: { type: number, nullable: true }
+    UpdateMealRequest:
+      type: object
+      properties:
+        user_id: { type: string }
+        raw_text: { type: string, nullable: true }
+        canonical_name: { type: string, nullable: true }
+        calories_kcal: { type: number, nullable: true }
+        protein_g: { type: number, nullable: true }
+        carbohydrate_g: { type: number, nullable: true }
+        fat_g: { type: number, nullable: true }
+        eaten_at: { type: string, format: date-time, nullable: true }

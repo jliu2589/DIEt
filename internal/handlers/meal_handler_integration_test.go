@@ -143,6 +143,56 @@ func TestMealHandler_EditMealTime(t *testing.T) {
 	}
 }
 
+func TestMealHandler_GetPatchDeleteMeal(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := setupMealHandler(t)
+	r := gin.New()
+	r.POST("/v1/meals", h.CreateMeal)
+	r.GET("/v1/meals/:mealEventID", h.GetMealByID)
+	r.PATCH("/v1/meals/:mealEventID", h.PatchMeal)
+	r.DELETE("/v1/meals/:mealEventID", h.DeleteMeal)
+
+	createReq := httptest.NewRequest(http.MethodPost, "/v1/meals", bytes.NewBufferString(`{"user_id":"u1","source":"web","raw_text":"toast"}`))
+	createReq.Header.Set("Content-Type", "application/json")
+	createW := httptest.NewRecorder()
+	r.ServeHTTP(createW, createReq)
+	if createW.Code != http.StatusOK {
+		t.Fatalf("seed create status=%d body=%s", createW.Code, createW.Body.String())
+	}
+	var created struct {
+		Item struct {
+			MealEventID float64 `json:"meal_event_id"`
+		} `json:"item"`
+	}
+	if err := json.Unmarshal(createW.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	mealID := jsonNumberToID(created.Item.MealEventID)
+
+	getW := httptest.NewRecorder()
+	r.ServeHTTP(getW, httptest.NewRequest(http.MethodGet, "/v1/meals/"+mealID+"?user_id=u1", nil))
+	if getW.Code != http.StatusOK {
+		t.Fatalf("get status=%d body=%s", getW.Code, getW.Body.String())
+	}
+
+	patchReq := httptest.NewRequest(http.MethodPatch, "/v1/meals/"+mealID, bytes.NewBufferString(`{"user_id":"u1","canonical_name":"updated toast"}`))
+	patchReq.Header.Set("Content-Type", "application/json")
+	patchW := httptest.NewRecorder()
+	r.ServeHTTP(patchW, patchReq)
+	if patchW.Code != http.StatusOK {
+		t.Fatalf("patch status=%d body=%s", patchW.Code, patchW.Body.String())
+	}
+	if !bytes.Contains(patchW.Body.Bytes(), []byte(`"canonical_name":"updated toast"`)) {
+		t.Fatalf("expected updated canonical_name, body=%s", patchW.Body.String())
+	}
+
+	deleteW := httptest.NewRecorder()
+	r.ServeHTTP(deleteW, httptest.NewRequest(http.MethodDelete, "/v1/meals/"+mealID+"?user_id=u1", nil))
+	if deleteW.Code != http.StatusNoContent {
+		t.Fatalf("delete status=%d body=%s", deleteW.Code, deleteW.Body.String())
+	}
+}
+
 func jsonNumberToID(v float64) string {
 	return strconv.FormatInt(int64(v), 10)
 }

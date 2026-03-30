@@ -236,3 +236,50 @@ func (r *MealsRepository) ListCandidates(ctx context.Context, limit int) ([]Meal
 
 	return out, nil
 }
+
+func (r *MealsRepository) List(ctx context.Context, limit int) ([]models.Meal, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	const q = `
+		SELECT
+			id,
+			canonical_name,
+			fingerprint_hash,
+			structure_signature,
+			source_type,
+			confidence_score,
+			created_at,
+			updated_at
+		FROM meals
+		ORDER BY updated_at DESC, id DESC
+		LIMIT $1
+	`
+	rows, err := r.db.Query(ctx, q, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list meals: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]models.Meal, 0, limit)
+	for rows.Next() {
+		var item models.Meal
+		if err := rows.Scan(
+			&item.ID,
+			&item.CanonicalName,
+			&item.FingerprintHash,
+			&item.StructureSignature,
+			&item.SourceType,
+			&item.ConfidenceScore,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan meal row: %w", err)
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate meal rows: %w", err)
+	}
+	return out, nil
+}
