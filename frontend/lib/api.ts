@@ -59,6 +59,18 @@ export type RecentMealsResponse = {
   items: RecentMeal[];
 };
 
+export type EditMealTimeRequest = {
+  user_id: string;
+  eaten_at: string;
+};
+
+export type EditMealTimeResponse = {
+  meal_event_id: number;
+  canonical_name: string;
+  eaten_at: string;
+  time_source?: string | null;
+};
+
 export type DashboardTodayResponse = {
   user_id: string;
   date: string;
@@ -149,6 +161,20 @@ export async function getRecentMeals(userId: string, limit = 20): Promise<Recent
   }
 
   return response.json() as Promise<RecentMealsResponse>;
+}
+
+export async function editMealTime(mealEventId: number, payload: EditMealTimeRequest): Promise<EditMealTimeResponse> {
+  const response = await fetch(buildUrl(`/v1/meals/${mealEventId}/time`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to edit meal time (${response.status})`);
+  }
+
+  return response.json() as Promise<EditMealTimeResponse>;
 }
 
 export async function getDashboardToday(userId: string): Promise<DashboardTodayResponse> {
