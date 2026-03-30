@@ -1,138 +1,223 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import { createMeal, getDailySummary, type CreateMealResponse, type DailySummaryResponse } from "@/lib/api";
+import { FormEvent, useState } from "react";
 
-const USER_ID = "demo-user";
+const goals = [
+  { label: "Calories", consumed: 1380, target: 2500, unit: "kcal" },
+  { label: "Protein", consumed: 92, target: 160, unit: "g" },
+  { label: "Carbs", consumed: 145, target: 220, unit: "g" },
+  { label: "Fat", consumed: 52, target: 75, unit: "g" }
+];
 
-function todayDate() {
-  return new Date().toISOString().slice(0, 10);
-}
+const chatMessages = [
+  { id: 1, from: "assistant", text: "Good morning — you’re on track. Want a high-protein lunch idea?" },
+  { id: 2, from: "user", text: "Yes, something quick." },
+  { id: 3, from: "assistant", text: "Try grilled chicken, quinoa, and roasted vegetables (~520 kcal, 45g protein)." }
+] as const;
+
+const todaysMeals = [
+  { id: 1, name: "Greek Yogurt + Berries", time: "8:10 AM", calories: 320, protein: 28 },
+  { id: 2, name: "Salmon Rice Bowl", time: "12:42 PM", calories: 610, protein: 41 },
+  { id: 3, name: "Almonds + Banana", time: "3:20 PM", calories: 210, protein: 9 }
+];
+
+const weeklyTrend = [68, 72, 65, 74, 70, 78, 76];
 
 export default function HomePage() {
-  const [rawText, setRawText] = useState("");
-  const [summary, setSummary] = useState<DailySummaryResponse | null>(null);
-  const [lastMeal, setLastMeal] = useState<CreateMealResponse | null>(null);
-  const [loadingSummary, setLoadingSummary] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [chatInput, setChatInput] = useState("");
+  const [drafts, setDrafts] = useState<string[]>([]);
 
-  const date = useMemo(() => todayDate(), []);
-
-  async function loadSummary() {
-    setLoadingSummary(true);
-    setError(null);
-    try {
-      const data = await getDailySummary(USER_ID, date);
-      setSummary(data);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to fetch summary");
-    } finally {
-      setLoadingSummary(false);
+  function onSubmitChat(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmed = chatInput.trim();
+    if (!trimmed) {
+      return;
     }
-  }
-
-  useEffect(() => {
-    void loadSummary();
-  }, []);
-
-  async function onSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!rawText.trim()) return;
-
-    setSubmitting(true);
-    setError(null);
-    try {
-      const result = await createMeal({
-        user_id: USER_ID,
-        source: "web",
-        raw_text: rawText,
-        eaten_at: new Date().toISOString()
-      });
-
-      setLastMeal(result);
-      setRawText("");
-      await loadSummary();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add meal");
-    } finally {
-      setSubmitting(false);
-    }
+    setDrafts((prev) => [trimmed, ...prev].slice(0, 3));
+    setChatInput("");
   }
 
   return (
-    <main className="space-y-6">
-      <section className="rounded-xl bg-white p-4 shadow-sm">
-        <h2 className="mb-2 text-base font-semibold">Today Dashboard</h2>
-        <p className="mb-4 text-sm text-slate-600">User: {USER_ID}</p>
-
-        <form onSubmit={onSubmit} className="flex gap-2">
-          <input
-            value={rawText}
-            onChange={(e) => setRawText(e.target.value)}
-            placeholder="e.g. grilled salmon with rice"
-            className="w-full rounded-md border border-slate-300 px-3 py-2"
-          />
-          <button
-            type="submit"
-            disabled={submitting}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-60"
-          >
-            {submitting ? "Saving..." : "Log Meal"}
-          </button>
-        </form>
+    <main className="space-y-5 pb-8">
+      <section className="rounded-2xl border border-stone-200/80 bg-gradient-to-b from-stone-50 to-amber-50/40 p-4 shadow-sm sm:p-6">
+        <p className="text-xs font-medium uppercase tracking-[0.14em] text-stone-500">Today’s Goals & Totals</p>
+        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-stone-900">Nutrition Dashboard</h2>
+        <p className="mt-1 text-sm text-stone-600">Quick progress snapshot against your daily targets.</p>
+        <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {goals.map((goal) => (
+            <GoalCard key={goal.label} {...goal} />
+          ))}
+        </div>
       </section>
 
-      {lastMeal && (
-        <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
-          <h3 className="mb-2 text-base font-semibold text-emerald-900">Meal Logged</h3>
-          <p className="mb-2 text-sm text-emerald-900">
-            <strong>{lastMeal.canonical_name}</strong>
+      <section className="rounded-2xl border border-amber-200/70 bg-gradient-to-b from-white to-amber-50/70 p-4 shadow-sm sm:p-6">
+        <div className="mb-3 space-y-1">
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-amber-700/80">Main Chat</p>
+          <h3 className="text-xl font-semibold tracking-tight text-stone-900 sm:text-2xl">Tell me what you need</h3>
+          <p className="text-sm text-stone-600">
+            Log meals, track your weight, ask for recommendations, or just chat about your nutrition day.
           </p>
-          <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
-            <Metric label="Calories" value={`${lastMeal.nutrition.calories_kcal} kcal`} />
-            <Metric label="Protein" value={`${lastMeal.nutrition.protein_g} g`} />
-            <Metric label="Carbs" value={`${lastMeal.nutrition.carbohydrate_g} g`} />
-            <Metric label="Fat" value={`${lastMeal.nutrition.fat_g} g`} />
-          </div>
-        </section>
-      )}
-
-      <section className="rounded-xl bg-white p-4 shadow-sm">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-base font-semibold">Today's Summary ({date})</h3>
-          <button onClick={loadSummary} className="text-sm text-blue-600 hover:underline">
-            {loadingSummary ? "Refreshing..." : "Refresh"}
-          </button>
         </div>
 
-        {summary ? (
-          <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-3">
-            <Metric label="Calories" value={`${summary.calories_kcal} kcal`} />
-            <Metric label="Protein" value={`${summary.protein_g} g`} />
-            <Metric label="Carbs" value={`${summary.carbohydrate_g} g`} />
-            <Metric label="Fat" value={`${summary.fat_g} g`} />
-            <Metric label="Fiber" value={`${summary.fiber_g} g`} />
-            <Metric label="Sodium" value={`${summary.sodium_mg} mg`} />
-            <Metric label="Potassium" value={`${summary.potassium_mg} mg`} />
-            <Metric label="Calcium" value={`${summary.calcium_mg} mg`} />
-            <Metric label="Magnesium" value={`${summary.magnesium_mg} mg`} />
+        <form onSubmit={onSubmitChat} className="space-y-3">
+          <label htmlFor="chat-input" className="sr-only">
+            Main nutrition chat input
+          </label>
+          <div className="rounded-2xl border border-stone-300 bg-white p-2 shadow-sm focus-within:border-amber-400">
+            <textarea
+              id="chat-input"
+              value={chatInput}
+              onChange={(event) => setChatInput(event.target.value)}
+              rows={3}
+              placeholder="Log a meal, your weight, or ask what to eat next"
+              className="w-full resize-none rounded-xl border-none bg-transparent px-2 py-1 text-sm text-stone-800 outline-none placeholder:text-stone-400 sm:text-base"
+            />
+            <div className="flex items-center justify-between gap-3 px-2 pb-1 pt-2">
+              <p className="text-xs text-stone-500">Try: “Lunch was chicken bowl” or “I weigh 176.2 lb”</p>
+              <button
+                type="submit"
+                className="shrink-0 rounded-xl bg-stone-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-stone-700"
+              >
+                Send
+              </button>
+            </div>
           </div>
-        ) : (
-          <p className="text-sm text-slate-500">No summary data yet.</p>
+        </form>
+
+        {drafts.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {drafts.map((draft, idx) => (
+              <p key={`${draft}-${idx}`} className="rounded-full border border-stone-200 bg-white px-3 py-1 text-xs text-stone-600">
+                {draft}
+              </p>
+            ))}
+          </div>
         )}
       </section>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      <SectionCard title="Coach Chat" subtitle="Placeholder conversation UI (no backend wiring yet)">
+        <div className="space-y-3">
+          <div className="space-y-2 rounded-xl border border-stone-200 bg-white/70 p-3">
+            {chatMessages.map((message) => (
+              <ChatBubble key={message.id} from={message.from} text={message.text} />
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              disabled
+              placeholder="Type a message…"
+              className="w-full rounded-xl border border-stone-300 bg-stone-100 px-3 py-2 text-sm text-stone-600 placeholder:text-stone-400"
+            />
+            <button
+              disabled
+              className="rounded-xl border border-stone-300 bg-stone-100 px-4 py-2 text-sm font-medium text-stone-500"
+            >
+              Send
+            </button>
+          </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Today’s Meals" subtitle="Snapshot list with placeholder totals">
+        <div className="space-y-2">
+          {todaysMeals.map((meal) => (
+            <article
+              key={meal.id}
+              className="rounded-xl border border-stone-200 bg-white px-3 py-3 text-sm sm:flex sm:items-center sm:justify-between"
+            >
+              <div>
+                <p className="font-medium text-stone-900">{meal.name}</p>
+                <p className="text-xs text-stone-500">{meal.time}</p>
+              </div>
+              <div className="mt-2 flex gap-3 text-xs text-stone-600 sm:mt-0">
+                <span>{meal.calories} kcal</span>
+                <span>{meal.protein}g protein</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Trends" subtitle="Weekly consistency chart placeholder">
+        <div className="rounded-xl border border-stone-200 bg-white p-4">
+          <div className="flex h-40 items-end gap-2">
+            {weeklyTrend.map((value, idx) => (
+              <div key={idx} className="flex flex-1 flex-col items-center justify-end gap-2">
+                <div
+                  className="w-full rounded-md bg-gradient-to-t from-amber-300 to-orange-200"
+                  style={{ height: `${value}%` }}
+                />
+                <span className="text-[10px] text-stone-500">D{idx + 1}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </SectionCard>
     </main>
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function SectionCard({
+  title,
+  subtitle,
+  children
+}: {
+  title: string;
+  subtitle: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3">
-      <p className="text-slate-500">{label}</p>
-      <p className="mt-1 font-medium">{value}</p>
+    <section className="rounded-2xl border border-stone-200/80 bg-stone-50/60 p-4 shadow-sm sm:p-5">
+      <header className="mb-3">
+        <h3 className="text-lg font-semibold text-stone-900">{title}</h3>
+        <p className="text-sm text-stone-600">{subtitle}</p>
+      </header>
+      {children}
+    </section>
+  );
+}
+
+function GoalCard({
+  label,
+  consumed,
+  target,
+  unit
+}: {
+  label: string;
+  consumed: number;
+  target: number;
+  unit: string;
+}) {
+  const pct = Math.min(Math.round((consumed / target) * 100), 100);
+  const remaining = Math.max(target - consumed, 0);
+
+  return (
+    <article className="rounded-xl border border-stone-200 bg-white p-3 shadow-sm">
+      <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-stone-500">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-stone-900">
+        {consumed}
+        <span className="ml-1 text-sm font-medium text-stone-500">/ {target}</span>
+      </p>
+      <p className="text-xs text-stone-600">{remaining} {unit} remaining</p>
+      <div className="mt-3 h-2 rounded-full bg-stone-200">
+        <div className="h-2 rounded-full bg-amber-300" style={{ width: `${pct}%` }} />
+      </div>
+      <p className="mt-1 text-[11px] text-stone-500">{pct}% complete</p>
+    </article>
+  );
+}
+
+function ChatBubble({ from, text }: { from: "assistant" | "user"; text: string }) {
+  const isUser = from === "user";
+  return (
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+      <p
+        className={`max-w-[88%] rounded-2xl px-3 py-2 text-sm leading-relaxed ${
+          isUser ? "bg-stone-900 text-stone-50" : "border border-stone-200 bg-stone-50 text-stone-800"
+        }`}
+      >
+        {text}
+      </p>
     </div>
   );
 }
