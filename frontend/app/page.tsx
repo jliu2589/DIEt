@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { getDashboardToday, getRecentMeals, getTrends, postChat, type ChatResponse, type RecentMeal, type TrendsPoint } from "../lib/api";
+import { editMealTime, getDashboardToday, getRecentMeals, getTrends, postChat, type ChatResponse, type RecentMeal, type TrendsPoint } from "../lib/api";
 
 const DASHBOARD_USER_ID = "demo-user-001";
 
@@ -60,6 +60,10 @@ export default function HomePage() {
   const [trendPointsByRange, setTrendPointsByRange] = useState<Partial<Record<TrendRange, TrendsPoint[]>>>({});
   const [trendsError, setTrendsError] = useState<string | null>(null);
   const [isTrendsLoading, setIsTrendsLoading] = useState(false);
+  const [editingMealID, setEditingMealID] = useState<number | null>(null);
+  const [editingMealValue, setEditingMealValue] = useState("");
+  const [savingMealID, setSavingMealID] = useState<number | null>(null);
+  const [editMealError, setEditMealError] = useState<string | null>(null);
 
   async function refreshDashboard() {
     setDashboardError(null);
@@ -152,6 +156,27 @@ export default function HomePage() {
     setChatInput("");
   }
 
+  async function onSaveMealTime(mealEventID: number) {
+    if (!editingMealValue) {
+      return;
+    }
+    setSavingMealID(mealEventID);
+    setEditMealError(null);
+    try {
+      await editMealTime(mealEventID, {
+        user_id: DASHBOARD_USER_ID,
+        eaten_at: new Date(editingMealValue).toISOString()
+      });
+      setEditingMealID(null);
+      setEditingMealValue("");
+      await refreshDashboard();
+    } catch (error) {
+      setEditMealError(error instanceof Error ? error.message : "Could not update meal time");
+    } finally {
+      setSavingMealID(null);
+    }
+  }
+
   return (
     <main className="mx-auto w-full max-w-5xl space-y-6 px-4 pb-10 pt-3 sm:space-y-7 sm:px-6 lg:space-y-8 lg:px-8">
       <section className="rounded-3xl border border-stone-200/80 bg-gradient-to-b from-stone-50 to-amber-50/40 p-5 shadow-sm sm:p-7">
@@ -226,34 +251,79 @@ export default function HomePage() {
 
       <SectionCard title="Today’s Meals" subtitle="Snapshot list with placeholder totals">
         {mealsError && <p className="mb-3 text-xs text-rose-700">{mealsError}</p>}
+        {editMealError && <p className="mb-3 text-xs text-rose-700">{editMealError}</p>}
         {recentMeals.length === 0 ? (
           <div className="rounded-xl border border-stone-200 bg-white/90 px-4 py-6 text-center text-sm text-stone-500">
             No meals logged yet today — try logging one in chat above.
           </div>
         ) : (
           <div className="space-y-2.5 sm:space-y-3">
-            {recentMeals.map((meal) => (
-            <article
-              key={meal.meal_event_id}
-              className="rounded-xl border border-stone-200 bg-white/95 px-3 py-3 shadow-sm sm:px-4"
-            >
-              <div className="sm:flex sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-[0.08em] text-stone-500">{formatMealTime(meal.eaten_at)}</p>
-                  <p className="mt-1 font-medium text-stone-900">{meal.canonical_name}</p>
-                </div>
-                <p className="mt-2 inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800 sm:mt-0">
-                  {toNumber(meal.calories_kcal)} kcal
-                </p>
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-                <MacroPill label="Protein" value={`${toNumber(meal.protein_g)}g`} />
-                <MacroPill label="Carbs" value={`${toNumber(meal.carbohydrate_g)}g`} />
-                <MacroPill label="Fat" value={`${toNumber(meal.fat_g)}g`} />
-                <MacroPill label="Calories" value={`${toNumber(meal.calories_kcal)}`} />
-              </div>
-            </article>
-            ))}
+            {recentMeals.map((meal) => {
+              const timeHint = getMealTimeHint(meal.time_source);
+              return (
+                <article
+                  key={meal.meal_event_id}
+                  className="rounded-xl border border-stone-200 bg-white/95 px-3 py-3 shadow-sm sm:px-4"
+                >
+                  <div className="sm:flex sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-[0.08em] text-stone-500">{formatMealTime(meal.eaten_at)}</p>
+                      {timeHint && <p className="mt-0.5 text-[11px] text-stone-500">{timeHint}</p>}
+                      <p className="mt-1 font-medium text-stone-900">{meal.canonical_name}</p>
+                      {editingMealID === meal.meal_event_id ? (
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <input
+                            type="datetime-local"
+                            value={editingMealValue}
+                            onChange={(event) => setEditingMealValue(event.target.value)}
+                            className="rounded-md border border-stone-300 bg-white px-2 py-1 text-xs text-stone-700"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void onSaveMealTime(meal.meal_event_id)}
+                            disabled={savingMealID === meal.meal_event_id || !editingMealValue}
+                            className="rounded-md bg-stone-900 px-2 py-1 text-xs font-medium text-white"
+                          >
+                            {savingMealID === meal.meal_event_id ? "Saving..." : "Save"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingMealID(null);
+                              setEditingMealValue("");
+                            }}
+                            className="text-xs text-stone-600"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingMealID(meal.meal_event_id);
+                            setEditingMealValue(toDateTimeLocalValue(meal.eaten_at));
+                            setEditMealError(null);
+                          }}
+                          className="mt-1 text-xs font-medium text-stone-600 underline decoration-stone-300 underline-offset-2"
+                        >
+                          Edit time
+                        </button>
+                      )}
+                    </div>
+                    <p className="mt-2 inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800 sm:mt-0">
+                      {toNumber(meal.calories_kcal)} kcal
+                    </p>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                    <MacroPill label="Protein" value={`${toNumber(meal.protein_g)}g`} />
+                    <MacroPill label="Carbs" value={`${toNumber(meal.carbohydrate_g)}g`} />
+                    <MacroPill label="Fat" value={`${toNumber(meal.fat_g)}g`} />
+                    <MacroPill label="Calories" value={`${toNumber(meal.calories_kcal)}`} />
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
       </SectionCard>
@@ -425,9 +495,30 @@ function formatMealTime(timestamp: string) {
     return "--:--";
   }
   return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
     hour: "numeric",
     minute: "2-digit"
   }).format(parsed);
+}
+
+function getMealTimeHint(timeSource?: string | null) {
+  if (!timeSource) {
+    return null;
+  }
+  if (timeSource === "default_now") {
+    return "Logged for now. Edit time if needed.";
+  }
+  return null;
+}
+
+function toDateTimeLocalValue(timestamp: string) {
+  const parsed = new Date(timestamp);
+  if (Number.isNaN(parsed.getTime())) {
+    return "";
+  }
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
 }
 
 function formatTrendLabel(date: string) {
