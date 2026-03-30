@@ -35,7 +35,9 @@ type MealEvent struct {
 	EventType        string    `json:"event_type" db:"event_type"`
 	RawText          *string   `json:"raw_text,omitempty" db:"raw_text"`
 	ImageURL         *string   `json:"image_url,omitempty" db:"image_url"`
+	LoggedAt         time.Time `json:"logged_at" db:"logged_at"`
 	EatenAt          time.Time `json:"eaten_at" db:"eaten_at"`
+	TimeSource       string    `json:"time_source" db:"time_source"`
 	ProcessingStatus string    `json:"processing_status" db:"processing_status"`
 	FingerprintHash  *string   `json:"fingerprint_hash,omitempty" db:"fingerprint_hash"`
 	CreatedAt        time.Time `json:"created_at" db:"created_at"`
