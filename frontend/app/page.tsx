@@ -22,11 +22,69 @@ const todaysMeals = [
   { id: 4, name: "Chicken & Avocado Wrap", time: "7:05 PM", calories: 470, protein: 36, carbs: 34, fat: 21 }
 ];
 
-const weeklyTrend = [68, 72, 65, 74, 70, 78, 76];
+type TrendMetric = "calories" | "protein" | "carbs" | "fat" | "weight";
+type TrendRange = "weekly" | "monthly" | "90d" | "yearly";
+
+const metricLabels: Record<TrendMetric, string> = {
+  calories: "Calories",
+  protein: "Protein",
+  carbs: "Carbs",
+  fat: "Fat",
+  weight: "Weight"
+};
+
+const rangeLabels: Record<TrendRange, string> = {
+  weekly: "Weekly",
+  monthly: "Monthly",
+  "90d": "90 days",
+  yearly: "Yearly"
+};
+
+const trendData: Record<TrendRange, Array<{ label: string; calories: number; protein: number; carbs: number; fat: number; weight: number }>> = {
+  weekly: [
+    { label: "Mon", calories: 1820, protein: 122, carbs: 188, fat: 61, weight: 176.6 },
+    { label: "Tue", calories: 1960, protein: 130, carbs: 201, fat: 64, weight: 176.3 },
+    { label: "Wed", calories: 1875, protein: 126, carbs: 174, fat: 60, weight: 176.1 },
+    { label: "Thu", calories: 2050, protein: 136, carbs: 218, fat: 66, weight: 175.9 },
+    { label: "Fri", calories: 1935, protein: 128, carbs: 196, fat: 63, weight: 175.8 },
+    { label: "Sat", calories: 2120, protein: 140, carbs: 224, fat: 69, weight: 175.7 },
+    { label: "Sun", calories: 1985, protein: 134, carbs: 209, fat: 65, weight: 175.6 }
+  ],
+  monthly: [
+    { label: "W1", calories: 1900, protein: 126, carbs: 190, fat: 62, weight: 177.2 },
+    { label: "W2", calories: 1940, protein: 129, carbs: 196, fat: 64, weight: 176.7 },
+    { label: "W3", calories: 1880, protein: 124, carbs: 184, fat: 61, weight: 176.2 },
+    { label: "W4", calories: 1960, protein: 132, carbs: 201, fat: 65, weight: 175.8 }
+  ],
+  "90d": [
+    { label: "M1", calories: 2020, protein: 132, carbs: 214, fat: 68, weight: 179.4 },
+    { label: "M2", calories: 1980, protein: 130, carbs: 207, fat: 66, weight: 178.6 },
+    { label: "M3", calories: 1925, protein: 128, carbs: 201, fat: 64, weight: 177.7 },
+    { label: "M4", calories: 1895, protein: 126, carbs: 194, fat: 63, weight: 176.9 },
+    { label: "M5", calories: 1950, protein: 129, carbs: 199, fat: 64, weight: 176.1 },
+    { label: "M6", calories: 1910, protein: 127, carbs: 192, fat: 62, weight: 175.8 }
+  ],
+  yearly: [
+    { label: "Jan", calories: 2100, protein: 131, carbs: 226, fat: 71, weight: 181.1 },
+    { label: "Feb", calories: 2040, protein: 129, carbs: 218, fat: 69, weight: 179.9 },
+    { label: "Mar", calories: 1980, protein: 127, carbs: 209, fat: 66, weight: 178.7 },
+    { label: "Apr", calories: 1950, protein: 128, carbs: 204, fat: 65, weight: 177.9 },
+    { label: "May", calories: 1920, protein: 126, carbs: 198, fat: 64, weight: 177.2 },
+    { label: "Jun", calories: 1890, protein: 125, carbs: 193, fat: 63, weight: 176.6 },
+    { label: "Jul", calories: 1940, protein: 129, carbs: 199, fat: 64, weight: 176.1 },
+    { label: "Aug", calories: 1900, protein: 126, carbs: 191, fat: 62, weight: 175.9 },
+    { label: "Sep", calories: 1920, protein: 127, carbs: 194, fat: 63, weight: 175.8 },
+    { label: "Oct", calories: 1880, protein: 124, carbs: 188, fat: 61, weight: 175.7 },
+    { label: "Nov", calories: 1930, protein: 128, carbs: 197, fat: 64, weight: 175.6 },
+    { label: "Dec", calories: 1890, protein: 125, carbs: 190, fat: 62, weight: 175.5 }
+  ]
+};
 
 export default function HomePage() {
   const [chatInput, setChatInput] = useState("");
   const [drafts, setDrafts] = useState<string[]>([]);
+  const [activeMetric, setActiveMetric] = useState<TrendMetric>("calories");
+  const [activeRange, setActiveRange] = useState<TrendRange>("weekly");
 
   function onSubmitChat(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -146,22 +204,112 @@ export default function HomePage() {
         </div>
       </SectionCard>
 
-      <SectionCard title="Trends" subtitle="Weekly consistency chart placeholder">
-        <div className="rounded-xl border border-stone-200 bg-white p-4">
-          <div className="flex h-40 items-end gap-2">
-            {weeklyTrend.map((value, idx) => (
-              <div key={idx} className="flex flex-1 flex-col items-center justify-end gap-2">
-                <div
-                  className="w-full rounded-md bg-gradient-to-t from-amber-300 to-orange-200"
-                  style={{ height: `${value}%` }}
-                />
-                <span className="text-[10px] text-stone-500">D{idx + 1}</span>
-              </div>
+      <SectionCard title="Trends" subtitle="Select a metric and time range to view trend direction">
+        <div className="space-y-3 rounded-xl border border-stone-200 bg-white p-3 sm:p-4">
+          <div className="flex flex-wrap gap-2">
+            {(Object.keys(metricLabels) as TrendMetric[]).map((metric) => (
+              <button
+                key={metric}
+                type="button"
+                onClick={() => setActiveMetric(metric)}
+                className={`rounded-full px-3 py-1.5 text-xs font-medium transition sm:text-sm ${
+                  activeMetric === metric
+                    ? "bg-stone-900 text-white"
+                    : "border border-stone-300 bg-stone-50 text-stone-700 hover:bg-stone-100"
+                }`}
+              >
+                {metricLabels[metric]}
+              </button>
             ))}
           </div>
+
+          <div className="flex flex-wrap gap-2">
+            {(Object.keys(rangeLabels) as TrendRange[]).map((range) => (
+              <button
+                key={range}
+                type="button"
+                onClick={() => setActiveRange(range)}
+                className={`rounded-full px-3 py-1.5 text-xs transition sm:text-sm ${
+                  activeRange === range
+                    ? "border border-amber-300 bg-amber-100 text-amber-900"
+                    : "border border-stone-300 bg-white text-stone-600 hover:bg-stone-50"
+                }`}
+              >
+                {rangeLabels[range]}
+              </button>
+            ))}
+          </div>
+
+          <LineTrendChart data={trendData[activeRange]} metric={activeMetric} />
         </div>
       </SectionCard>
     </main>
+  );
+}
+
+function LineTrendChart({
+  data,
+  metric
+}: {
+  data: Array<{ label: string; calories: number; protein: number; carbs: number; fat: number; weight: number }>;
+  metric: TrendMetric;
+}) {
+  const values = data.map((item) => item[metric]);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const spread = max - min || 1;
+  const chartWidth = 100;
+  const chartHeight = 50;
+
+  const points = values
+    .map((value, index) => {
+      const x = (index / Math.max(values.length - 1, 1)) * chartWidth;
+      const y = chartHeight - ((value - min) / spread) * chartHeight;
+      return `${x},${y}`;
+    })
+    .join(" ");
+
+  const latestValue = values.at(-1);
+  const prevValue = values.at(-2) ?? latestValue;
+  const delta = latestValue !== undefined && prevValue !== undefined ? latestValue - prevValue : 0;
+  const deltaPrefix = delta >= 0 ? "+" : "";
+
+  return (
+    <div className="rounded-xl border border-stone-200 bg-gradient-to-b from-stone-50 to-amber-50/30 p-3 sm:p-4">
+      <div className="mb-2 flex items-end justify-between gap-3">
+        <div>
+          <p className="text-xs uppercase tracking-[0.1em] text-stone-500">{metricLabels[metric]}</p>
+          <p className="text-xl font-semibold text-stone-900">
+            {latestValue}
+            <span className="ml-1 text-sm font-medium text-stone-500">{metric === "weight" ? "lb" : metric === "calories" ? "kcal" : "g"}</span>
+          </p>
+        </div>
+        <p className={`text-xs font-medium ${delta >= 0 ? "text-amber-800" : "text-emerald-700"}`}>
+          {deltaPrefix}
+          {delta.toFixed(metric === "weight" ? 1 : 0)} vs prior
+        </p>
+      </div>
+
+      <div className="relative h-44 w-full rounded-lg border border-stone-200 bg-white p-2">
+        <svg viewBox="0 0 100 50" preserveAspectRatio="none" className="h-full w-full">
+          <defs>
+            <linearGradient id="trend-fill" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.26" />
+              <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.03" />
+            </linearGradient>
+          </defs>
+          <polyline fill="none" stroke="#f59e0b" strokeWidth="1.5" points={points} />
+          <polygon fill="url(#trend-fill)" points={`0,50 ${points} 100,50`} />
+        </svg>
+        <div className="mt-2 grid grid-cols-4 gap-1 text-[10px] text-stone-500 sm:grid-cols-6 md:grid-cols-8">
+          {data.map((point) => (
+            <span key={point.label} className="truncate text-center">
+              {point.label}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 
