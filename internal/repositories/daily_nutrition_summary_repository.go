@@ -12,11 +12,23 @@ import (
 )
 
 type DailyNutritionSummaryRepository struct {
-	pool *pgxpool.Pool
+	db DBTX
+}
+
+type DailyNutritionSummaryRow struct {
+	SummaryDate   time.Time
+	CaloriesKcal  *float64
+	ProteinG      *float64
+	CarbohydrateG *float64
+	FatG          *float64
 }
 
 func NewDailyNutritionSummaryRepository(pool *pgxpool.Pool) *DailyNutritionSummaryRepository {
-	return &DailyNutritionSummaryRepository{pool: pool}
+	return &DailyNutritionSummaryRepository{db: pool}
+}
+
+func NewDailyNutritionSummaryRepositoryWithDB(db DBTX) *DailyNutritionSummaryRepository {
+	return &DailyNutritionSummaryRepository{db: db}
 }
 
 func (r *DailyNutritionSummaryRepository) GetByUserIDAndDate(ctx context.Context, userID string, summaryDate time.Time) (*models.DailyNutritionSummary, error) {
@@ -32,7 +44,7 @@ func (r *DailyNutritionSummaryRepository) GetByUserIDAndDate(ctx context.Context
 	`
 
 	var out models.DailyNutritionSummary
-	if err := r.pool.QueryRow(ctx, q, userID, summaryDate).Scan(
+	if err := r.db.QueryRow(ctx, q, userID, summaryDate).Scan(
 		&out.ID,
 		&out.UserID,
 		&out.SummaryDate,
@@ -106,7 +118,7 @@ func (r *DailyNutritionSummaryRepository) UpsertTotals(ctx context.Context, summ
 	`
 
 	var out models.DailyNutritionSummary
-	if err := r.pool.QueryRow(
+	if err := r.db.QueryRow(
 		ctx,
 		q,
 		summary.UserID,
@@ -156,4 +168,46 @@ func (r *DailyNutritionSummaryRepository) UpsertTotals(ctx context.Context, summ
 	}
 
 	return &out, nil
+}
+
+func (r *DailyNutritionSummaryRepository) ListByUserIDAndDateRange(ctx context.Context, userID string, startDate, endDate time.Time) ([]DailyNutritionSummaryRow, error) {
+	const q = `
+		SELECT
+			summary_date,
+			calories_kcal,
+			protein_g,
+			carbohydrate_g,
+			fat_g
+		FROM daily_nutrition_summary
+		WHERE user_id = $1
+			AND summary_date >= $2
+			AND summary_date <= $3
+		ORDER BY summary_date ASC
+	`
+
+	rows, err := r.db.Query(ctx, q, userID, startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("list daily_nutrition_summary by user and date range: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]DailyNutritionSummaryRow, 0)
+	for rows.Next() {
+		var item DailyNutritionSummaryRow
+		if err := rows.Scan(
+			&item.SummaryDate,
+			&item.CaloriesKcal,
+			&item.ProteinG,
+			&item.CarbohydrateG,
+			&item.FatG,
+		); err != nil {
+			return nil, fmt.Errorf("scan daily_nutrition_summary row: %w", err)
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate daily_nutrition_summary rows: %w", err)
+	}
+
+	return out, nil
 }
