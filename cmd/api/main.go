@@ -54,7 +54,10 @@ func main() {
 	repos := repositories.New(pool)
 
 	// 4) OpenAI client
-	openAIClient := openaiservice.NewClient(cfg.OpenAIAPIKey, "")
+	var openAIClient *openaiservice.Client
+	if cfg.EnableOpenAIFallback {
+		openAIClient = openaiservice.NewClient(cfg.OpenAIAPIKey, "")
+	}
 
 	// 5) Meal service
 	classifierSvc := inputclassifierservice.NewService()
@@ -71,14 +74,20 @@ func main() {
 		classifierSvc,
 	)
 
-	// 6) Telegram bot client
-	telegramBotClient := telegramservice.NewBotClient(cfg.TelegramBotToken)
-
 	// 7) User settings service
 	userSettingsSvc := usersettingsservice.NewService(repos.UserSettings)
 
-	// 8) Telegram service
-	telegramSvc := telegramservice.NewService(mealSvc, telegramBotClient)
+	// 8) Telegram service (optional)
+	var telegramHandler *handlers.TelegramHandler
+	if cfg.EnableTelegramIntegration {
+		telegramBotClient := telegramservice.NewBotClient(cfg.TelegramBotToken)
+		telegramSvc := telegramservice.NewService(mealSvc, telegramBotClient)
+		telegramHandler = handlers.NewTelegramHandler(
+			cfg.TelegramWebhookSecretPath,
+			cfg.TelegramWebhookSecretToken,
+			telegramSvc,
+		)
+	}
 
 	// 9) Weight service
 	weightSvc := weightservice.NewService(repos.WeightEntries)
@@ -107,11 +116,7 @@ func main() {
 		WeightHandler:   handlers.NewWeightHandler(weightSvc),
 		TrendsHandler:   handlers.NewTrendsHandler(trendsSvc),
 		MeHandler:       handlers.NewMeHandler(userStateSvc),
-		TelegramHandler: handlers.NewTelegramHandler(
-			cfg.TelegramWebhookSecretPath,
-			cfg.TelegramWebhookSecretToken,
-			telegramSvc,
-		),
+		TelegramHandler: telegramHandler,
 	})
 
 	// 16) HTTP server
@@ -132,7 +137,12 @@ func main() {
 		closePool()
 	}()
 
-	log.Printf("api listening on :%s", cfg.Port)
+	log.Printf(
+		"api listening on :%s (openai_fallback=%t telegram_integration=%t)",
+		cfg.Port,
+		cfg.EnableOpenAIFallback,
+		cfg.EnableTelegramIntegration,
+	)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("http server: %v", err)
 	}

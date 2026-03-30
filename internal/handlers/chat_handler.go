@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
 	"diet/internal/repositories"
 	chatservice "diet/internal/services/chat"
+	mealservice "diet/internal/services/meal"
 	"github.com/gin-gonic/gin"
 )
 
@@ -52,6 +54,10 @@ func (h *ChatHandler) PostChat(c *gin.Context) {
 		cleanupIdempotencyOnError(c, h.idempotencyRepo, idempotencyRecordID)
 		if isValidationError(err) || isWeightValidationError(err) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if errors.Is(err, mealservice.ErrOpenAIFallbackDisabled) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "meal parsing fallback is disabled; enable OPENAI fallback or use cached/reusable meals"})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process chat message"})

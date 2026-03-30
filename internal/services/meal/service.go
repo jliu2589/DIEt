@@ -3,6 +3,7 @@ package meal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -41,6 +42,8 @@ const (
 	defaultReusableMealSearch = 50
 	reusableMatchThreshold    = 0.80
 )
+
+var ErrOpenAIFallbackDisabled = errors.New("openai fallback is disabled")
 
 type ProcessTextMealInput struct {
 	UserID          string
@@ -335,6 +338,10 @@ func (s *Service) processFromCache(ctx context.Context, event *models.MealEvent,
 }
 
 func (s *Service) processWithOpenAI(ctx context.Context, event *models.MealEvent, fingerprint, rawText string) (*ProcessTextMealResult, error) {
+	if s.mealTextAnalyzer == nil {
+		return nil, ErrOpenAIFallbackDisabled
+	}
+
 	openAIResult, err := s.mealTextAnalyzer.AnalyzeMealText(ctx, rawText)
 	if err != nil {
 		return nil, fmt.Errorf("analyze meal text: %w", err)
@@ -513,24 +520,24 @@ func (s *Service) processFromReusableDatabase(ctx context.Context, event *models
 		return nil, err
 	}
 
-		return &ProcessTextMealResult{
-			Intent:           inputclassifier.IntentMealLog,
-			Logged:           true,
-			Message:          "Logged your meal.",
-			MealEventID:      event.ID,
-			Source:           event.Source,
-			ProcessedFrom:    "reusable_db",
-			LoggedAt:         event.LoggedAt,
-			EatenAt:          event.EatenAt,
-			TimeSource:       event.TimeSource,
-			CanonicalName:    reusableMeal.CanonicalName,
-			ConfidenceScore:  reusableMeal.ConfidenceScore,
-			Items:            analysisItems,
-			Nutrition:        total,
-			DailySummaryDate:  summaryDate.Format("2006-01-02"),
-			MatchReason:       &matchReason,
-			TokenOverlapScore: &tokenOverlap,
-		}, nil
+	return &ProcessTextMealResult{
+		Intent:            inputclassifier.IntentMealLog,
+		Logged:            true,
+		Message:           "Logged your meal.",
+		MealEventID:       event.ID,
+		Source:            event.Source,
+		ProcessedFrom:     "reusable_db",
+		LoggedAt:          event.LoggedAt,
+		EatenAt:           event.EatenAt,
+		TimeSource:        event.TimeSource,
+		CanonicalName:     reusableMeal.CanonicalName,
+		ConfidenceScore:   reusableMeal.ConfidenceScore,
+		Items:             analysisItems,
+		Nutrition:         total,
+		DailySummaryDate:  summaryDate.Format("2006-01-02"),
+		MatchReason:       &matchReason,
+		TokenOverlapScore: &tokenOverlap,
+	}, nil
 }
 
 func (s *Service) findReusableMealMatch(ctx context.Context, rawText string) (*repositories.MealCandidate, string, float64, error) {

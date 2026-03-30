@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -93,6 +94,10 @@ func (h *MealHandler) CreateMeal(c *gin.Context) {
 	})
 	if err != nil {
 		cleanupIdempotencyOnError(c, h.idempotencyRepo, idempotencyRecordID)
+		if errors.Is(err, mealservice.ErrOpenAIFallbackDisabled) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "meal parsing fallback is disabled; enable OPENAI fallback or use cached/reusable meals"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process meal"})
 		return
 	}

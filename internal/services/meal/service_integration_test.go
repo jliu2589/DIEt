@@ -164,4 +164,18 @@ func TestProcessTextMeal_OpenAIFallback(t *testing.T) {
 	}
 }
 
+func TestProcessTextMeal_OpenAIFallbackDisabledReturnsClearError(t *testing.T) {
+	pool := testutil.OpenTestDB(t)
+	t.Cleanup(pool.Close)
+	svc := newMealServiceForTest(pool, nil, "meal_log")
+
+	_, err := svc.ProcessTextMeal(context.Background(), ProcessTextMealInput{UserID: "u1", Source: "web", RawText: "needs analysis", EatenAt: time.Now().UTC()})
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if err != ErrOpenAIFallbackDisabled {
+		t.Fatalf("expected ErrOpenAIFallbackDisabled, got %v", err)
+	}
+}
+
 func strPtr(v string) *string { return &v }
