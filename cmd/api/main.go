@@ -102,7 +102,14 @@ func main() {
 	chatSvc := chatservice.NewService(classifierSvc, mealSvc, weightSvc)
 
 	// 13) Recommendations service
-	recommendationsSvc := recommendationsservice.NewService(repos.UserSettings, repos.DailyNutritionSummary, repos.MealMemory)
+	recommendationsSvc := recommendationsservice.NewService(
+		repos.UserSettings,
+		repos.DailyNutritionSummary,
+		repos.MealMemory,
+		repos.Meals,
+		repos.MealItems,
+		repos.CanonicalFoods,
+	)
 
 	// 14) Handlers + 15) Gin router
 	router := server.NewRouter(server.Dependencies{

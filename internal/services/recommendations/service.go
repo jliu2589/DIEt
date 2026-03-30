@@ -9,17 +9,25 @@ import (
 	"time"
 
 	"diet/internal/repositories"
+	canonicalfoodssvc "diet/internal/services/canonical_foods"
 )
 
 const (
 	defaultCandidateLimit = 30
 	defaultItemsLimit     = 10
+
+	sourceMealMemory    = "meal_memory"
+	sourceReusableMeal  = "reusable_meal"
+	sourceCanonicalFood = "canonical_food"
 )
 
 type Service struct {
 	userSettingsRepo *repositories.UserSettingsRepository
 	summaryRepo      *repositories.DailyNutritionSummaryRepository
 	mealMemoryRepo   *repositories.MealMemoryRepository
+	mealsRepo        *repositories.MealsRepository
+	mealItemsRepo    *repositories.MealItemsRepository
+	canonicalFoods   *repositories.CanonicalFoodsRepository
 	phraser          Phraser
 	aiPhrasingOn     bool
 }
@@ -48,14 +56,26 @@ type RecommendationItem struct {
 	ProteinG            float64 `json:"protein_g"`
 	CarbohydrateG       float64 `json:"carbohydrate_g"`
 	FatG                float64 `json:"fat_g"`
+	Source              string  `json:"source"`
+	SourceID            int64   `json:"source_id"`
 	RecommendationScore float64 `json:"recommendation_score"`
 }
 
-func NewService(userSettingsRepo *repositories.UserSettingsRepository, summaryRepo *repositories.DailyNutritionSummaryRepository, mealMemoryRepo *repositories.MealMemoryRepository) *Service {
+func NewService(
+	userSettingsRepo *repositories.UserSettingsRepository,
+	summaryRepo *repositories.DailyNutritionSummaryRepository,
+	mealMemoryRepo *repositories.MealMemoryRepository,
+	mealsRepo *repositories.MealsRepository,
+	mealItemsRepo *repositories.MealItemsRepository,
+	canonicalFoodsRepo *repositories.CanonicalFoodsRepository,
+) *Service {
 	return &Service{
 		userSettingsRepo: userSettingsRepo,
 		summaryRepo:      summaryRepo,
 		mealMemoryRepo:   mealMemoryRepo,
+		mealsRepo:        mealsRepo,
+		mealItemsRepo:    mealItemsRepo,
+		canonicalFoods:   canonicalFoodsRepo,
 		aiPhrasingOn:     true,
 	}
 }
@@ -94,30 +114,93 @@ func (s *Service) GetForUserToday(ctx context.Context, userID string, now time.T
 	caloriesRemaining := math.Max(calorieGoal-caloriesToday, 0)
 	proteinRemaining := math.Max(proteinGoal-proteinToday, 0)
 
-	candidates, err := s.mealMemoryRepo.ListRecommendationCandidates(ctx, defaultCandidateLimit)
+	candidates, err := s.buildCandidates(ctx, caloriesRemaining, proteinRemaining)
 	if err != nil {
 		return nil, fmt.Errorf("get recommendation candidates: %w", err)
 	}
 
-	items := make([]RecommendationItem, 0, len(candidates))
-	for _, c := range candidates {
-		cal := valueOrZero(c.CaloriesKcal)
-		pro := valueOrZero(c.ProteinG)
-		score := recommendationScore(caloriesRemaining, proteinRemaining, cal, pro)
-		items = append(items, RecommendationItem{
-			MealID:              c.MealID,
-			CanonicalName:       c.CanonicalName,
-			CaloriesKcal:        cal,
-			ProteinG:            pro,
-			CarbohydrateG:       valueOrZero(c.CarbohydrateG),
-			FatG:                valueOrZero(c.FatG),
-			RecommendationScore: score,
-		})
+	response := &Response{
+		CaloriesRemaining: caloriesRemaining,
+		ProteinRemainingG: proteinRemaining,
+		MessageToUser:     defaultExplanation(caloriesRemaining, proteinRemaining),
+		Items:             candidates,
 	}
 
+	if s.aiPhrasingOn && s.phraser != nil {
+		if message, err := s.phraser.PhraseRecommendations(ctx, PhraseInput{
+			CaloriesRemaining: caloriesRemaining,
+			ProteinRemainingG: proteinRemaining,
+			Items:             candidates,
+		}); err == nil && strings.TrimSpace(message) != "" {
+			response.MessageToUser = strings.TrimSpace(message)
+		}
+	}
+
+	return response, nil
+}
+
+func (s *Service) buildCandidates(ctx context.Context, caloriesRemaining, proteinRemaining float64) ([]RecommendationItem, error) {
+	items := make([]RecommendationItem, 0, defaultCandidateLimit*3)
+
+	if s.mealMemoryRepo != nil {
+		memoryCandidates, err := s.mealMemoryRepo.ListRecommendationCandidates(ctx, defaultCandidateLimit)
+		if err != nil {
+			return nil, err
+		}
+		for _, c := range memoryCandidates {
+			cal := valueOrZero(c.CaloriesKcal)
+			pro := valueOrZero(c.ProteinG)
+			items = append(items, RecommendationItem{
+				MealID:              c.MealID,
+				CanonicalName:       c.CanonicalName,
+				CaloriesKcal:        cal,
+				ProteinG:            pro,
+				CarbohydrateG:       valueOrZero(c.CarbohydrateG),
+				FatG:                valueOrZero(c.FatG),
+				Source:              sourceMealMemory,
+				SourceID:            c.MealID,
+				RecommendationScore: recommendationScore(caloriesRemaining, proteinRemaining, cal, pro),
+			})
+		}
+	}
+
+	if s.mealsRepo != nil && s.mealItemsRepo != nil && s.canonicalFoods != nil {
+		reusable, err := s.buildReusableMealCandidates(ctx, caloriesRemaining, proteinRemaining)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, reusable...)
+	}
+
+	if s.canonicalFoods != nil {
+		candidates, err := s.canonicalFoods.ListRecommendationCandidates(ctx, defaultCandidateLimit)
+		if err != nil {
+			return nil, err
+		}
+		for _, c := range candidates {
+			cal := valueOrZero(c.CaloriesKcal)
+			pro := valueOrZero(c.ProteinG)
+			items = append(items, RecommendationItem{
+				MealID:              c.FoodID,
+				CanonicalName:       c.CanonicalName,
+				CaloriesKcal:        cal,
+				ProteinG:            pro,
+				CarbohydrateG:       valueOrZero(c.CarbohydrateG),
+				FatG:                valueOrZero(c.FatG),
+				Source:              sourceCanonicalFood,
+				SourceID:            c.FoodID,
+				RecommendationScore: recommendationScore(caloriesRemaining, proteinRemaining, cal, pro),
+			})
+		}
+	}
+
+	items = dedupeByName(items)
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].RecommendationScore == items[j].RecommendationScore {
-			return items[i].MealID < items[j].MealID
+			if sourcePriority(items[i].Source) == sourcePriority(items[j].Source) {
+				return items[i].SourceID < items[j].SourceID
+			}
+			return sourcePriority(items[i].Source) < sourcePriority(items[j].Source)
 		}
 		return items[i].RecommendationScore > items[j].RecommendationScore
 	})
@@ -125,25 +208,96 @@ func (s *Service) GetForUserToday(ctx context.Context, userID string, now time.T
 	if len(items) > defaultItemsLimit {
 		items = items[:defaultItemsLimit]
 	}
+	return items, nil
+}
 
-	response := &Response{
-		CaloriesRemaining: caloriesRemaining,
-		ProteinRemainingG: proteinRemaining,
-		MessageToUser:     defaultExplanation(caloriesRemaining, proteinRemaining),
-		Items:             items,
+func (s *Service) buildReusableMealCandidates(ctx context.Context, caloriesRemaining, proteinRemaining float64) ([]RecommendationItem, error) {
+	mealRows, err := s.mealsRepo.ListCandidates(ctx, defaultCandidateLimit)
+	if err != nil {
+		return nil, fmt.Errorf("list reusable meal candidates: %w", err)
 	}
 
-	if s.aiPhrasingOn && s.phraser != nil {
-		if message, err := s.phraser.PhraseRecommendations(ctx, PhraseInput{
-			CaloriesRemaining: caloriesRemaining,
-			ProteinRemainingG: proteinRemaining,
-			Items:             items,
-		}); err == nil && strings.TrimSpace(message) != "" {
-			response.MessageToUser = strings.TrimSpace(message)
+	out := make([]RecommendationItem, 0, len(mealRows))
+	for _, mealRow := range mealRows {
+		storedItems, err := s.mealItemsRepo.ListByMealID(ctx, mealRow.ID)
+		if err != nil {
+			return nil, fmt.Errorf("list meal_items for reusable candidate: %w", err)
+		}
+
+		totalCal := 0.0
+		totalProtein := 0.0
+		totalCarb := 0.0
+		totalFat := 0.0
+		for _, item := range storedItems {
+			food, err := s.canonicalFoods.GetByID(ctx, item.FoodID)
+			if err != nil {
+				return nil, fmt.Errorf("get canonical food for reusable candidate: %w", err)
+			}
+			if food == nil {
+				continue
+			}
+
+			scaled, err := canonicalfoodssvc.ScaleNutrition(*food, item.Quantity, item.Unit)
+			if err != nil {
+				continue
+			}
+			totalCal += valueOrZero(scaled.Nutrition.CaloriesKcal)
+			totalProtein += valueOrZero(scaled.Nutrition.ProteinG)
+			totalCarb += valueOrZero(scaled.Nutrition.CarbohydrateG)
+			totalFat += valueOrZero(scaled.Nutrition.FatG)
+		}
+
+		if totalCal == 0 && totalProtein == 0 && totalCarb == 0 && totalFat == 0 {
+			continue
+		}
+		out = append(out, RecommendationItem{
+			MealID:              mealRow.ID,
+			CanonicalName:       mealRow.CanonicalName,
+			CaloriesKcal:        totalCal,
+			ProteinG:            totalProtein,
+			CarbohydrateG:       totalCarb,
+			FatG:                totalFat,
+			Source:              sourceReusableMeal,
+			SourceID:            mealRow.ID,
+			RecommendationScore: recommendationScore(caloriesRemaining, proteinRemaining, totalCal, totalProtein),
+		})
+	}
+
+	return out, nil
+}
+
+func sourcePriority(source string) int {
+	switch source {
+	case sourceReusableMeal:
+		return 0
+	case sourceMealMemory:
+		return 1
+	case sourceCanonicalFood:
+		return 2
+	default:
+		return 3
+	}
+}
+
+func dedupeByName(items []RecommendationItem) []RecommendationItem {
+	byName := make(map[string]RecommendationItem, len(items))
+	for _, item := range items {
+		key := strings.ToLower(strings.TrimSpace(item.CanonicalName))
+		if key == "" {
+			continue
+		}
+		existing, ok := byName[key]
+		if !ok || item.RecommendationScore > existing.RecommendationScore ||
+			(item.RecommendationScore == existing.RecommendationScore && sourcePriority(item.Source) < sourcePriority(existing.Source)) {
+			byName[key] = item
 		}
 	}
 
-	return response, nil
+	out := make([]RecommendationItem, 0, len(byName))
+	for _, item := range byName {
+		out = append(out, item)
+	}
+	return out
 }
 
 func recommendationScore(calRemain, proRemain, cal, pro float64) float64 {

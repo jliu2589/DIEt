@@ -15,6 +15,17 @@ type CanonicalFoodsRepository struct {
 	db DBTX
 }
 
+type CanonicalFoodRecommendationCandidate struct {
+	FoodID        int64
+	CanonicalName string
+	DefaultAmount float64
+	DefaultUnit   string
+	CaloriesKcal  *float64
+	ProteinG      *float64
+	CarbohydrateG *float64
+	FatG          *float64
+}
+
 func NewCanonicalFoodsRepository(pool *pgxpool.Pool) *CanonicalFoodsRepository {
 	return &CanonicalFoodsRepository{db: pool}
 }
@@ -166,4 +177,55 @@ func (r *CanonicalFoodsRepository) GetByCanonicalName(ctx context.Context, canon
 	}
 
 	return &out, nil
+}
+
+func (r *CanonicalFoodsRepository) ListRecommendationCandidates(ctx context.Context, limit int) ([]CanonicalFoodRecommendationCandidate, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+
+	const q = `
+		SELECT
+			f.id,
+			f.canonical_name,
+			f.default_amount,
+			f.default_unit,
+			fn.calories_kcal,
+			fn.protein_g,
+			fn.carbohydrate_g,
+			fn.fat_g
+		FROM foods f
+		LEFT JOIN food_nutrition fn ON fn.food_id = f.id
+		ORDER BY f.canonical_name ASC, f.id ASC
+		LIMIT $1
+	`
+
+	rows, err := r.db.Query(ctx, q, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list canonical food recommendation candidates: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]CanonicalFoodRecommendationCandidate, 0, limit)
+	for rows.Next() {
+		var item CanonicalFoodRecommendationCandidate
+		if err := rows.Scan(
+			&item.FoodID,
+			&item.CanonicalName,
+			&item.DefaultAmount,
+			&item.DefaultUnit,
+			&item.CaloriesKcal,
+			&item.ProteinG,
+			&item.CarbohydrateG,
+			&item.FatG,
+		); err != nil {
+			return nil, fmt.Errorf("scan canonical food recommendation candidate: %w", err)
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate canonical food recommendation candidates: %w", err)
+	}
+
+	return out, nil
 }

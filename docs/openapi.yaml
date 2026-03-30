@@ -266,4 +266,6 @@ components:
               protein_g: { type: number }
               carbohydrate_g: { type: number }
               fat_g: { type: number }
+              source: { type: string, enum: [reusable_meal, canonical_food, meal_memory] }
+              source_id: { type: integer, format: int64 }
               recommendation_score: { type: number }
