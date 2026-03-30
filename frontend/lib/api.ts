@@ -18,10 +18,12 @@ export type NutritionTotals = {
   vitamin_c_mg: number;
 };
 
-export type DailySummaryResponse = NutritionTotals & {
+export type DailySummaryResponse = {
   user_id: string;
   date: string;
-};
+  totals: NutritionTotals;
+  meal_count?: number;
+} & NutritionTotals;
 
 export type CreateMealRequest = {
   user_id: string;
@@ -30,24 +32,28 @@ export type CreateMealRequest = {
   eaten_at: string;
 };
 
-export type CreateMealResponse = {
+export type MealItemView = {
   meal_event_id: number;
-  processed_from: "cache" | "openai";
   canonical_name: string;
-  nutrition: NutritionTotals;
+  logged_at: string;
+  eaten_at: string;
+  time_source: string;
+  source: string;
   confidence_score?: number;
+  calories_kcal: number | null;
+  protein_g: number | null;
+  carbohydrate_g: number | null;
+  fat_g: number | null;
 };
 
-export type RecentMeal = {
-  meal_event_id: number;
-  canonical_name: string;
-  eaten_at: string;
-  calories_kcal: number;
-  protein_g: number;
-  carbohydrate_g: number;
-  fat_g: number;
-  source: string;
+export type CreateMealResponse = {
+  intent: string;
+  logged: boolean;
+  message: string;
+  item?: MealItemView;
 };
+
+export type RecentMeal = MealItemView;
 
 export type RecentMealsResponse = {
   items: RecentMeal[];
@@ -72,7 +78,7 @@ export async function getDailySummary(userId: string, date: string): Promise<Dai
     throw new Error(`Failed to fetch daily summary (${response.status})`);
   }
 
-  return response.json();
+  return response.json() as Promise<DailySummaryResponse>;
 }
 
 export async function createMeal(payload: CreateMealRequest): Promise<CreateMealResponse> {
@@ -86,7 +92,7 @@ export async function createMeal(payload: CreateMealRequest): Promise<CreateMeal
     throw new Error(`Failed to create meal (${response.status})`);
   }
 
-  return response.json();
+  return response.json() as Promise<CreateMealResponse>;
 }
 
 export async function getRecentMeals(userId: string, limit = 20): Promise<RecentMealsResponse> {
@@ -99,5 +105,5 @@ export async function getRecentMeals(userId: string, limit = 20): Promise<Recent
     throw new Error(`Failed to fetch recent meals (${response.status})`);
   }
 
-  return response.json();
+  return response.json() as Promise<RecentMealsResponse>;
 }
