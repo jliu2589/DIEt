@@ -160,6 +160,27 @@ export default function HomePage() {
     }
   }
 
+  async function onSaveMealTime(mealEventID: number) {
+    if (!editingMealValue) {
+      return;
+    }
+    setSavingMealID(mealEventID);
+    setEditMealError(null);
+    try {
+      await editMealTime(mealEventID, {
+        user_id: DASHBOARD_USER_ID,
+        eaten_at: new Date(editingMealValue).toISOString()
+      });
+      setEditingMealID(null);
+      setEditingMealValue("");
+      await refreshDashboard();
+    } catch (error) {
+      setEditMealError(error instanceof Error ? error.message : "Could not update meal time");
+    } finally {
+      setSavingMealID(null);
+    }
+  }
+
   return (
     <main className="mx-auto w-full max-w-5xl space-y-6 px-4 pb-10 pt-3 sm:space-y-7 sm:px-6 lg:space-y-8 lg:px-8">
       <section className="rounded-3xl border border-stone-200/80 bg-gradient-to-b from-stone-50 to-amber-50/40 p-5 shadow-sm sm:p-7">
