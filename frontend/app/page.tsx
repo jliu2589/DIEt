@@ -160,47 +160,26 @@ export default function HomePage() {
     }
   }
 
-  async function onSaveMealTime(mealEventID: number) {
-    if (!editingMealValue) {
-      return;
-    }
-    setSavingMealID(mealEventID);
-    setEditMealError(null);
-    try {
-      await editMealTime(mealEventID, {
-        user_id: DASHBOARD_USER_ID,
-        eaten_at: new Date(editingMealValue).toISOString()
-      });
-      setEditingMealID(null);
-      setEditingMealValue("");
-      await refreshDashboard();
-    } catch (error) {
-      setEditMealError(error instanceof Error ? error.message : "Could not update meal time");
-    } finally {
-      setSavingMealID(null);
-    }
-  }
-
   return (
-    <main className="mx-auto w-full max-w-5xl space-y-6 px-4 pb-10 pt-3 sm:space-y-7 sm:px-6 lg:space-y-8 lg:px-8">
-      <section className="rounded-3xl border border-stone-200/80 bg-gradient-to-b from-stone-50 to-amber-50/40 p-5 shadow-sm sm:p-7">
-        <p className="text-xs font-medium uppercase tracking-[0.14em] text-stone-500">Today’s Goals & Totals</p>
-        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-stone-900 sm:text-3xl">Nutrition Dashboard</h2>
-        <p className="mt-1 text-sm text-stone-600 sm:text-base">Quick progress snapshot against your daily targets.</p>
+    <main className="mx-auto w-full max-w-6xl space-y-5 px-4 pb-12 pt-4 sm:space-y-6 sm:px-6 lg:space-y-7 lg:px-8">
+      <section className="rounded-[1.75rem] border border-stone-200/80 bg-gradient-to-b from-stone-50 via-amber-50/50 to-rose-50/20 p-5 shadow-[0_10px_28px_-16px_rgba(120,113,108,0.35)] sm:p-7">
+        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-stone-500">Today’s Goals & Totals</p>
+        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-stone-900 sm:text-3xl lg:text-[2.05rem]">Nutrition Dashboard</h2>
+        <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-stone-600 sm:text-base">Quick progress snapshot against your daily targets.</p>
         {dashboardError && <p className="mt-2 text-xs text-rose-700">{dashboardError}</p>}
         {isDashboardLoading && <p className="mt-2 text-xs text-stone-500">Loading latest totals…</p>}
-        <div className="mt-5 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
           {goals.map((goal) => (
             <GoalCard key={goal.label} {...goal} />
           ))}
         </div>
       </section>
 
-      <section className="rounded-3xl border border-amber-200/70 bg-gradient-to-b from-white to-amber-50/70 p-5 shadow-sm sm:p-7">
+      <section className="rounded-[1.75rem] border border-amber-200/70 bg-gradient-to-b from-white via-amber-50/65 to-orange-50/30 p-5 shadow-[0_10px_24px_-16px_rgba(217,119,6,0.35)] sm:p-7">
         <div className="mb-4 space-y-1.5">
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-amber-700/80">Main Chat</p>
-          <h3 className="text-2xl font-semibold tracking-tight text-stone-900">Tell me what you need</h3>
-          <p className="max-w-2xl text-sm text-stone-600 sm:text-base">
+          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-amber-800/80">Main Chat</p>
+          <h3 className="text-2xl font-semibold tracking-tight text-stone-900 sm:text-[1.7rem]">Tell me what you need</h3>
+          <p className="max-w-2xl text-sm leading-relaxed text-stone-600 sm:text-base">
             Log meals, track your weight, ask for recommendations, or just chat about your nutrition day.
           </p>
         </div>
@@ -209,7 +188,7 @@ export default function HomePage() {
           <label htmlFor="chat-input" className="sr-only">
             Main nutrition chat input
           </label>
-          <div className="rounded-2xl border border-stone-300 bg-white p-2 shadow-sm focus-within:border-amber-400 sm:p-3">
+          <div className="rounded-2xl border border-stone-300/90 bg-white/95 p-2.5 shadow-[0_8px_24px_-18px_rgba(41,37,36,0.55)] focus-within:border-amber-400 sm:p-3">
             <textarea
               id="chat-input"
               value={chatInput}
@@ -218,12 +197,12 @@ export default function HomePage() {
               placeholder="Log a meal, your weight, or ask what to eat next"
               className="w-full resize-none rounded-xl border-none bg-transparent px-2 py-1 text-sm leading-relaxed text-stone-800 outline-none placeholder:text-stone-400 sm:text-base"
             />
-            <div className="flex items-center justify-between gap-3 px-2 pb-1 pt-2">
+            <div className="flex flex-col items-start justify-between gap-2 px-2 pb-1 pt-2 sm:flex-row sm:items-center sm:gap-3">
               <p className="text-xs text-stone-500 sm:text-sm">Try: “Lunch was chicken bowl” or “I weigh 176.2 lb”</p>
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="shrink-0 rounded-xl bg-stone-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-stone-700 sm:px-5"
+                className="shrink-0 rounded-xl bg-stone-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-stone-700 disabled:opacity-70 sm:px-5"
               >
                 {isSubmitting ? "Sending..." : "Send"}
               </button>
@@ -234,14 +213,16 @@ export default function HomePage() {
         {chatError && <p className="mt-2 text-xs text-rose-700">{chatError}</p>}
 
         {chatTurns.length > 0 && (
-          <div className="mt-4 space-y-3">
+          <div className="mt-4 space-y-3.5">
             {chatTurns.map((turn) => (
-              <article key={turn.id} className="space-y-2">
+              <article key={turn.id} className="space-y-2.5">
                 <div className="flex justify-end">
-                  <p className="max-w-[90%] rounded-2xl bg-stone-900 px-3 py-2 text-sm text-white sm:max-w-[75%]">{turn.userMessage}</p>
+                  <p className="max-w-[92%] rounded-2xl bg-stone-900 px-3.5 py-2.5 text-sm leading-relaxed text-white shadow-[0_8px_18px_-14px_rgba(28,25,23,0.85)] sm:max-w-[75%]">
+                    {turn.userMessage}
+                  </p>
                 </div>
                 <div className="flex justify-start">
-                  <div className="w-full max-w-[92%] rounded-2xl border border-stone-200 bg-white/95 px-3 py-3 text-sm text-stone-700 shadow-sm sm:max-w-[80%]">
+                  <div className="w-full max-w-[94%] rounded-2xl border border-stone-200 bg-white/95 px-3.5 py-3 text-sm text-stone-700 shadow-[0_10px_20px_-16px_rgba(41,37,36,0.55)] sm:max-w-[80%]">
                     <ChatResponseBlock response={turn.response} />
                   </div>
                 </div>
@@ -259,17 +240,17 @@ export default function HomePage() {
             No meals logged yet today — try logging one in chat above.
           </div>
         ) : (
-          <div className="space-y-2.5 sm:space-y-3">
+          <div className="space-y-3">
             {recentMeals.map((meal) => {
               const timeHint = getMealTimeHint(meal.time_source);
               return (
                 <article
                   key={meal.meal_event_id}
-                  className="rounded-xl border border-stone-200 bg-white/95 px-3 py-3 shadow-sm sm:px-4"
+                  className="rounded-2xl border border-stone-200/90 bg-white/95 px-3.5 py-3.5 shadow-[0_10px_20px_-16px_rgba(41,37,36,0.5)] sm:px-4"
                 >
                   <div className="sm:flex sm:items-center sm:justify-between">
                     <div>
-                      <p className="text-xs font-medium uppercase tracking-[0.08em] text-stone-500">{formatMealTime(meal.eaten_at)}</p>
+                      <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-stone-500">{formatMealTime(meal.eaten_at)}</p>
                       {timeHint && <p className="mt-0.5 text-[11px] text-stone-500">{timeHint}</p>}
                       <p className="mt-1 font-medium text-stone-900">{meal.canonical_name}</p>
                       {editingMealID === meal.meal_event_id ? (
@@ -313,11 +294,11 @@ export default function HomePage() {
                         </button>
                       )}
                     </div>
-                    <p className="mt-2 inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800 sm:mt-0">
+                    <p className="mt-2 inline-flex rounded-full border border-amber-200/80 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-900 sm:mt-0">
                       {toNumber(meal.calories_kcal)} kcal
                     </p>
                   </div>
-                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                  <div className="mt-3 grid grid-cols-2 gap-2.5 text-xs sm:grid-cols-4">
                     <MacroPill label="Protein" value={`${toNumber(meal.protein_g)}g`} />
                     <MacroPill label="Carbs" value={`${toNumber(meal.carbohydrate_g)}g`} />
                     <MacroPill label="Fat" value={`${toNumber(meal.fat_g)}g`} />
@@ -331,7 +312,7 @@ export default function HomePage() {
       </SectionCard>
 
       <SectionCard title="Trends" subtitle="Select a metric and time range to view trend direction">
-        <div className="space-y-3 rounded-xl border border-stone-200 bg-white p-3 sm:p-4">
+        <div className="space-y-3 rounded-2xl border border-stone-200/90 bg-white/95 p-3.5 shadow-[0_10px_20px_-16px_rgba(41,37,36,0.45)] sm:p-4">
           <div className="flex flex-wrap gap-2">
             {(Object.keys(metricLabels) as TrendMetric[]).map((metric) => (
               <button
@@ -340,7 +321,7 @@ export default function HomePage() {
                 onClick={() => setActiveMetric(metric)}
                 className={`rounded-full px-3 py-1.5 text-xs font-medium transition sm:text-sm ${
                   activeMetric === metric
-                    ? "bg-stone-900 text-white"
+                    ? "bg-stone-900 text-white shadow-sm"
                     : "border border-stone-300 bg-stone-50 text-stone-700 hover:bg-stone-100"
                 }`}
               >
@@ -357,7 +338,7 @@ export default function HomePage() {
                 onClick={() => setActiveRange(range)}
                 className={`rounded-full px-3 py-1.5 text-xs transition sm:text-sm ${
                   activeRange === range
-                    ? "border border-amber-300 bg-amber-100 text-amber-900"
+                    ? "border border-amber-300 bg-amber-100 text-amber-900 shadow-sm"
                     : "border border-stone-300 bg-white text-stone-600 hover:bg-stone-50"
                 }`}
               >
@@ -414,7 +395,7 @@ function LineTrendChart({
 
   if (values.length === 0 || points.length === 0) {
     return (
-      <div className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-6 text-center text-sm text-stone-500">
+      <div className="rounded-2xl border border-stone-200 bg-stone-50/80 px-4 py-6 text-center text-sm text-stone-500">
         No trend data yet for this range.
       </div>
     );
@@ -440,11 +421,11 @@ function LineTrendChart({
   const deltaPrefix = delta >= 0 ? "+" : "";
 
   return (
-    <div className="rounded-xl border border-stone-200 bg-gradient-to-b from-stone-50 to-amber-50/30 p-3 sm:p-4">
-      <div className="mb-2 flex items-end justify-between gap-3">
+    <div className="rounded-2xl border border-stone-200/90 bg-gradient-to-b from-stone-50 via-amber-50/30 to-white p-3.5 sm:p-4">
+      <div className="mb-2.5 flex items-end justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.1em] text-stone-500">{metricLabels[metric]}</p>
-          <p className="text-xl font-semibold text-stone-900">
+          <p className="text-[11px] uppercase tracking-[0.12em] text-stone-500">{metricLabels[metric]}</p>
+          <p className="text-xl font-semibold tracking-tight text-stone-900">
             {latestValue}
             <span className="ml-1 text-sm font-medium text-stone-500">{metric === "weight" ? "lb" : metric === "calories" ? "kcal" : "g"}</span>
           </p>
@@ -455,7 +436,7 @@ function LineTrendChart({
         </p>
       </div>
 
-      <div className="relative h-44 w-full rounded-lg border border-stone-200 bg-white p-2">
+      <div className="relative h-44 w-full rounded-xl border border-stone-200 bg-white p-2.5">
         <svg viewBox="0 0 100 50" preserveAspectRatio="none" className="h-full w-full">
           <defs>
             <linearGradient id="trend-fill" x1="0" x2="0" y1="0" y2="1">
@@ -480,9 +461,9 @@ function LineTrendChart({
 
 function MacroPill({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-stone-200 bg-stone-50 px-2.5 py-2">
-      <p className="text-[10px] uppercase tracking-[0.08em] text-stone-500">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-stone-800">{value}</p>
+    <div className="rounded-xl border border-stone-200 bg-stone-50/80 px-2.5 py-2.5">
+      <p className="text-[10px] uppercase tracking-[0.1em] text-stone-500">{label}</p>
+      <p className="mt-1 text-sm font-semibold tracking-tight text-stone-800">{value}</p>
     </div>
   );
 }
@@ -526,9 +507,9 @@ function toDateTimeLocalValue(timestamp: string) {
 function ChatResponseBlock({ response }: { response: ChatResponse }) {
   if (response.meal_result) {
     return (
-      <div className="space-y-2">
-        <p className="text-xs font-medium uppercase tracking-[0.08em] text-amber-700">Meal Logged</p>
-        <p className="font-semibold text-stone-900">{response.meal_result.canonical_name}</p>
+      <div className="space-y-2.5">
+        <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-amber-700">Meal Logged</p>
+        <p className="text-[15px] font-semibold tracking-tight text-stone-900">{response.meal_result.canonical_name}</p>
         <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
           <MacroPill label="Calories" value={`${toNumber(response.meal_result.calories_kcal ?? null)}`} />
           <MacroPill label="Protein" value={`${toNumber(response.meal_result.protein_g ?? null)}g`} />
@@ -541,9 +522,9 @@ function ChatResponseBlock({ response }: { response: ChatResponse }) {
 
   if (response.weight_result) {
     return (
-      <div className="space-y-1">
-        <p className="text-xs font-medium uppercase tracking-[0.08em] text-amber-700">Weight Logged</p>
-        <p className="text-base font-semibold text-stone-900">
+      <div className="space-y-1.5">
+        <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-amber-700">Weight Logged</p>
+        <p className="text-base font-semibold tracking-tight text-stone-900">
           {response.weight_result.weight} {response.weight_result.unit}
         </p>
       </div>
@@ -553,8 +534,8 @@ function ChatResponseBlock({ response }: { response: ChatResponse }) {
   if (response.recommendation_result) {
     const recommendations = toRecommendationList(response.recommendation_result.text);
     return (
-      <div className="space-y-2">
-        <p className="text-xs font-medium uppercase tracking-[0.08em] text-amber-700">Recommendations</p>
+      <div className="space-y-2.5">
+        <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-amber-700">Recommendations</p>
         <ul className="space-y-1 text-sm text-stone-700">
           {recommendations.map((item, idx) => (
             <li key={`${item}-${idx}`} className="flex gap-2">
@@ -611,10 +592,10 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-3xl border border-stone-200/80 bg-stone-50/65 p-5 shadow-sm sm:p-6">
+    <section className="rounded-[1.6rem] border border-stone-200/80 bg-gradient-to-b from-stone-50/90 to-white p-5 shadow-[0_10px_24px_-18px_rgba(41,37,36,0.5)] sm:p-6">
       <header className="mb-4">
-        <h3 className="text-xl font-semibold tracking-tight text-stone-900">{title}</h3>
-        <p className="mt-1 text-sm text-stone-600 sm:text-base">{subtitle}</p>
+        <h3 className="text-xl font-semibold tracking-tight text-stone-900 sm:text-[1.45rem]">{title}</h3>
+        <p className="mt-1 text-sm leading-relaxed text-stone-600 sm:text-base">{subtitle}</p>
       </header>
       {children}
     </section>
@@ -636,17 +617,17 @@ function GoalCard({
   const remaining = Math.max(target - consumed, 0);
 
   return (
-    <article className="rounded-xl border border-stone-200 bg-white p-3 shadow-sm">
-      <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-stone-500">{label}</p>
-      <p className="mt-1 text-lg font-semibold text-stone-900">
+    <article className="rounded-2xl border border-stone-200/90 bg-white/95 p-3.5 shadow-[0_8px_18px_-14px_rgba(41,37,36,0.45)]">
+      <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-stone-500">{label}</p>
+      <p className="mt-1.5 text-xl font-semibold tracking-tight text-stone-900">
         {consumed}
         <span className="ml-1 text-sm font-medium text-stone-500">/ {target}</span>
       </p>
       <p className="text-xs text-stone-600">{remaining} {unit} remaining</p>
-      <div className="mt-3 h-2 rounded-full bg-stone-200">
-        <div className="h-2 rounded-full bg-amber-300" style={{ width: `${pct}%` }} />
+      <div className="mt-3 h-2.5 rounded-full bg-stone-200">
+        <div className="h-2.5 rounded-full bg-amber-300" style={{ width: `${pct}%` }} />
       </div>
-      <p className="mt-1 text-[11px] text-stone-500">{pct}% complete</p>
+      <p className="mt-1.5 text-[11px] text-stone-500">{pct}% complete</p>
     </article>
   );
 }
