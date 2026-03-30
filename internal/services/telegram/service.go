@@ -67,6 +67,12 @@ func buildNutritionReply(result *mealservice.ProcessTextMealResult) string {
 	if result == nil {
 		return "Meal saved."
 	}
+	if !result.Logged {
+		if strings.TrimSpace(result.Message) != "" {
+			return result.Message
+		}
+		return "Got it — that wasn’t logged as a meal."
+	}
 
 	return fmt.Sprintf(
 		"Meal: %s\nCalories: %.2f kcal\nProtein: %.2f g\nCarbs: %.2f g\nFat: %.2f g",
