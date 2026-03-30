@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"diet/internal/models"
@@ -12,11 +13,23 @@ import (
 )
 
 type DailyNutritionSummaryRepository struct {
-	pool *pgxpool.Pool
+	db DBTX
+}
+
+type DailyNutritionSummaryRow struct {
+	SummaryDate   time.Time
+	CaloriesKcal  *float64
+	ProteinG      *float64
+	CarbohydrateG *float64
+	FatG          *float64
 }
 
 func NewDailyNutritionSummaryRepository(pool *pgxpool.Pool) *DailyNutritionSummaryRepository {
-	return &DailyNutritionSummaryRepository{pool: pool}
+	return &DailyNutritionSummaryRepository{db: pool}
+}
+
+func NewDailyNutritionSummaryRepositoryWithDB(db DBTX) *DailyNutritionSummaryRepository {
+	return &DailyNutritionSummaryRepository{db: db}
 }
 
 func (r *DailyNutritionSummaryRepository) GetByUserIDAndDate(ctx context.Context, userID string, summaryDate time.Time) (*models.DailyNutritionSummary, error) {
@@ -32,7 +45,7 @@ func (r *DailyNutritionSummaryRepository) GetByUserIDAndDate(ctx context.Context
 	`
 
 	var out models.DailyNutritionSummary
-	if err := r.pool.QueryRow(ctx, q, userID, summaryDate).Scan(
+	if err := r.db.QueryRow(ctx, q, userID, summaryDate).Scan(
 		&out.ID,
 		&out.UserID,
 		&out.SummaryDate,
@@ -106,7 +119,7 @@ func (r *DailyNutritionSummaryRepository) UpsertTotals(ctx context.Context, summ
 	`
 
 	var out models.DailyNutritionSummary
-	if err := r.pool.QueryRow(
+	if err := r.db.QueryRow(
 		ctx,
 		q,
 		summary.UserID,
@@ -156,4 +169,144 @@ func (r *DailyNutritionSummaryRepository) UpsertTotals(ctx context.Context, summ
 	}
 
 	return &out, nil
+}
+
+func (r *DailyNutritionSummaryRepository) ListByUserIDAndDateRange(ctx context.Context, userID string, startDate, endDate time.Time) ([]DailyNutritionSummaryRow, error) {
+	const q = `
+		SELECT
+			summary_date,
+			calories_kcal,
+			protein_g,
+			carbohydrate_g,
+			fat_g
+		FROM daily_nutrition_summary
+		WHERE user_id = $1
+			AND summary_date >= $2
+			AND summary_date <= $3
+		ORDER BY summary_date ASC
+	`
+
+	rows, err := r.db.Query(ctx, q, userID, startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("list daily_nutrition_summary by user and date range: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]DailyNutritionSummaryRow, 0)
+	for rows.Next() {
+		var item DailyNutritionSummaryRow
+		if err := rows.Scan(
+			&item.SummaryDate,
+			&item.CaloriesKcal,
+			&item.ProteinG,
+			&item.CarbohydrateG,
+			&item.FatG,
+		); err != nil {
+			return nil, fmt.Errorf("scan daily_nutrition_summary row: %w", err)
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate daily_nutrition_summary rows: %w", err)
+	}
+
+	return out, nil
+}
+
+// ReconcileForUserDate deterministically recomputes and persists the daily summary
+// from meal_events + meal_analysis for a user/date.
+func (r *DailyNutritionSummaryRepository) ReconcileForUserDate(ctx context.Context, userID string, summaryDate time.Time) error {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return fmt.Errorf("user_id is required")
+	}
+	summaryDate = time.Date(summaryDate.UTC().Year(), summaryDate.UTC().Month(), summaryDate.UTC().Day(), 0, 0, 0, 0, time.UTC)
+
+	const aggregateQ = `
+		SELECT
+			SUM(ma.calories_kcal),
+			SUM(ma.protein_g),
+			SUM(ma.carbohydrate_g),
+			SUM(ma.fat_g),
+			SUM(ma.fiber_g),
+			SUM(ma.sugars_g),
+			SUM(ma.saturated_fat_g),
+			SUM(ma.sodium_mg),
+			SUM(ma.potassium_mg),
+			SUM(ma.calcium_mg),
+			SUM(ma.magnesium_mg),
+			SUM(ma.iron_mg),
+			SUM(ma.zinc_mg),
+			SUM(ma.vitamin_d_mcg),
+			SUM(ma.vitamin_b12_mcg),
+			SUM(ma.folate_b9_mcg),
+			SUM(ma.vitamin_c_mg)
+		FROM meal_events me
+		INNER JOIN meal_analysis ma ON ma.meal_event_id = me.id
+		WHERE me.user_id = $1
+			AND me.eaten_at::date = $2::date
+			AND me.processing_status = 'processed'
+	`
+
+	summary := models.DailyNutritionSummary{
+		UserID:      userID,
+		SummaryDate: summaryDate,
+	}
+	if err := r.db.QueryRow(ctx, aggregateQ, userID, summaryDate).Scan(
+		&summary.CaloriesKcal,
+		&summary.ProteinG,
+		&summary.CarbohydrateG,
+		&summary.FatG,
+		&summary.FiberG,
+		&summary.SugarsG,
+		&summary.SaturatedFatG,
+		&summary.SodiumMg,
+		&summary.PotassiumMg,
+		&summary.CalciumMg,
+		&summary.MagnesiumMg,
+		&summary.IronMg,
+		&summary.ZincMg,
+		&summary.VitaminDMcg,
+		&summary.VitaminB12Mcg,
+		&summary.FolateB9Mcg,
+		&summary.VitaminCMg,
+	); err != nil {
+		return fmt.Errorf("aggregate daily summary for reconciliation: %w", err)
+	}
+
+	if !hasAnyNutrition(summary) {
+		const deleteQ = `
+			DELETE FROM daily_nutrition_summary
+			WHERE user_id = $1 AND summary_date = $2
+		`
+		if _, err := r.db.Exec(ctx, deleteQ, userID, summaryDate); err != nil {
+			return fmt.Errorf("delete empty daily summary during reconciliation: %w", err)
+		}
+		return nil
+	}
+
+	if _, err := r.UpsertTotals(ctx, summary); err != nil {
+		return fmt.Errorf("upsert reconciled daily summary: %w", err)
+	}
+	return nil
+}
+
+func hasAnyNutrition(s models.DailyNutritionSummary) bool {
+	return s.CaloriesKcal != nil ||
+		s.ProteinG != nil ||
+		s.CarbohydrateG != nil ||
+		s.FatG != nil ||
+		s.FiberG != nil ||
+		s.SugarsG != nil ||
+		s.SaturatedFatG != nil ||
+		s.SodiumMg != nil ||
+		s.PotassiumMg != nil ||
+		s.CalciumMg != nil ||
+		s.MagnesiumMg != nil ||
+		s.IronMg != nil ||
+		s.ZincMg != nil ||
+		s.VitaminDMcg != nil ||
+		s.VitaminB12Mcg != nil ||
+		s.FolateB9Mcg != nil ||
+		s.VitaminCMg != nil
 }

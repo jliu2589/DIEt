@@ -2,21 +2,25 @@ package repositories
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"diet/internal/models"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type MealEventsRepository struct {
-	pool *pgxpool.Pool
+	db DBTX
 }
 
 type RecentMeal struct {
 	MealEventID   int64
 	CanonicalName string
+	LoggedAt      time.Time
 	EatenAt       time.Time
+	TimeSource    string
 	CaloriesKcal  *float64
 	ProteinG      *float64
 	CarbohydrateG *float64
@@ -24,20 +28,32 @@ type RecentMeal struct {
 	Source        string
 }
 
+type MealTimeUpdate struct {
+	MealEventID     int64
+	CanonicalName   string
+	PreviousEatenAt time.Time
+	UpdatedEatenAt  time.Time
+	TimeSource      string
+}
+
 func NewMealEventsRepository(pool *pgxpool.Pool) *MealEventsRepository {
-	return &MealEventsRepository{pool: pool}
+	return &MealEventsRepository{db: pool}
+}
+
+func NewMealEventsRepositoryWithDB(db DBTX) *MealEventsRepository {
+	return &MealEventsRepository{db: db}
 }
 
 func (r *MealEventsRepository) Insert(ctx context.Context, event models.MealEvent) (*models.MealEvent, error) {
 	const q = `
 		INSERT INTO meal_events (
-			user_id, source, source_message_id, event_type, raw_text, image_url, eaten_at, processing_status, fingerprint_hash
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-		RETURNING id, user_id, source, source_message_id, event_type, raw_text, image_url, eaten_at, processing_status, fingerprint_hash, created_at, updated_at
+			user_id, source, source_message_id, event_type, raw_text, image_url, logged_at, eaten_at, time_source, processing_status, fingerprint_hash
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		RETURNING id, user_id, source, source_message_id, event_type, raw_text, image_url, logged_at, eaten_at, time_source, processing_status, fingerprint_hash, created_at, updated_at
 	`
 
 	var out models.MealEvent
-	if err := r.pool.QueryRow(
+	if err := r.db.QueryRow(
 		ctx,
 		q,
 		event.UserID,
@@ -46,7 +62,9 @@ func (r *MealEventsRepository) Insert(ctx context.Context, event models.MealEven
 		event.EventType,
 		event.RawText,
 		event.ImageURL,
+		event.LoggedAt,
 		event.EatenAt,
+		event.TimeSource,
 		event.ProcessingStatus,
 		event.FingerprintHash,
 	).Scan(
@@ -57,7 +75,9 @@ func (r *MealEventsRepository) Insert(ctx context.Context, event models.MealEven
 		&out.EventType,
 		&out.RawText,
 		&out.ImageURL,
+		&out.LoggedAt,
 		&out.EatenAt,
+		&out.TimeSource,
 		&out.ProcessingStatus,
 		&out.FingerprintHash,
 		&out.CreatedAt,
@@ -71,13 +91,13 @@ func (r *MealEventsRepository) Insert(ctx context.Context, event models.MealEven
 
 func (r *MealEventsRepository) GetByID(ctx context.Context, id int64) (*models.MealEvent, error) {
 	const q = `
-		SELECT id, user_id, source, source_message_id, event_type, raw_text, image_url, eaten_at, processing_status, fingerprint_hash, created_at, updated_at
+		SELECT id, user_id, source, source_message_id, event_type, raw_text, image_url, logged_at, eaten_at, time_source, processing_status, fingerprint_hash, created_at, updated_at
 		FROM meal_events
 		WHERE id = $1
 	`
 
 	var out models.MealEvent
-	if err := r.pool.QueryRow(ctx, q, id).Scan(
+	if err := r.db.QueryRow(ctx, q, id).Scan(
 		&out.ID,
 		&out.UserID,
 		&out.Source,
@@ -85,13 +105,48 @@ func (r *MealEventsRepository) GetByID(ctx context.Context, id int64) (*models.M
 		&out.EventType,
 		&out.RawText,
 		&out.ImageURL,
+		&out.LoggedAt,
 		&out.EatenAt,
+		&out.TimeSource,
 		&out.ProcessingStatus,
 		&out.FingerprintHash,
 		&out.CreatedAt,
 		&out.UpdatedAt,
 	); err != nil {
 		return nil, fmt.Errorf("get meal_event by id: %w", err)
+	}
+
+	return &out, nil
+}
+
+func (r *MealEventsRepository) GetByIDAndUserID(ctx context.Context, id int64, userID string) (*models.MealEvent, error) {
+	const q = `
+		SELECT id, user_id, source, source_message_id, event_type, raw_text, image_url, logged_at, eaten_at, time_source, processing_status, fingerprint_hash, created_at, updated_at
+		FROM meal_events
+		WHERE id = $1 AND user_id = $2
+	`
+
+	var out models.MealEvent
+	if err := r.db.QueryRow(ctx, q, id, userID).Scan(
+		&out.ID,
+		&out.UserID,
+		&out.Source,
+		&out.SourceMessageID,
+		&out.EventType,
+		&out.RawText,
+		&out.ImageURL,
+		&out.LoggedAt,
+		&out.EatenAt,
+		&out.TimeSource,
+		&out.ProcessingStatus,
+		&out.FingerprintHash,
+		&out.CreatedAt,
+		&out.UpdatedAt,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get meal_event by id and user_id: %w", err)
 	}
 
 	return &out, nil
@@ -104,10 +159,22 @@ func (r *MealEventsRepository) UpdateProcessingStatus(ctx context.Context, id in
 		WHERE id = $1
 	`
 
-	if _, err := r.pool.Exec(ctx, q, id, status); err != nil {
+	if _, err := r.db.Exec(ctx, q, id, status); err != nil {
 		return fmt.Errorf("update meal_event processing status: %w", err)
 	}
 
+	return nil
+}
+
+func (r *MealEventsRepository) UpdateRawTextByIDAndUserID(ctx context.Context, mealEventID int64, userID, rawText string) error {
+	const q = `
+		UPDATE meal_events
+		SET raw_text = $3, updated_at = NOW()
+		WHERE id = $1 AND user_id = $2
+	`
+	if _, err := r.db.Exec(ctx, q, mealEventID, userID, rawText); err != nil {
+		return fmt.Errorf("update meal_event raw_text by id and user_id: %w", err)
+	}
 	return nil
 }
 
@@ -116,7 +183,9 @@ func (r *MealEventsRepository) ListRecentByUserID(ctx context.Context, userID st
 		SELECT
 			me.id,
 			ma.canonical_name,
+			me.logged_at,
 			me.eaten_at,
+			me.time_source,
 			ma.calories_kcal,
 			ma.protein_g,
 			ma.carbohydrate_g,
@@ -129,7 +198,7 @@ func (r *MealEventsRepository) ListRecentByUserID(ctx context.Context, userID st
 		LIMIT $2
 	`
 
-	rows, err := r.pool.Query(ctx, q, userID, limit)
+	rows, err := r.db.Query(ctx, q, userID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list recent meals by user id: %w", err)
 	}
@@ -141,7 +210,9 @@ func (r *MealEventsRepository) ListRecentByUserID(ctx context.Context, userID st
 		if err := rows.Scan(
 			&item.MealEventID,
 			&item.CanonicalName,
+			&item.LoggedAt,
 			&item.EatenAt,
+			&item.TimeSource,
 			&item.CaloriesKcal,
 			&item.ProteinG,
 			&item.CarbohydrateG,
@@ -158,4 +229,66 @@ func (r *MealEventsRepository) ListRecentByUserID(ctx context.Context, userID st
 	}
 
 	return out, nil
+}
+
+func (r *MealEventsRepository) UpdateEatenAtByIDAndUserID(ctx context.Context, mealEventID int64, userID string, eatenAt time.Time) (*MealTimeUpdate, error) {
+	const q = `
+		WITH previous AS (
+			SELECT me.id, me.user_id, me.eaten_at
+			FROM meal_events me
+			WHERE me.id = $1 AND me.user_id = $2
+		)
+		UPDATE meal_events me
+		SET eaten_at = $3, time_source = 'edited', updated_at = NOW()
+		FROM previous p
+		WHERE me.id = p.id AND me.user_id = p.user_id
+		RETURNING
+			me.id,
+			COALESCE((
+				SELECT ma.canonical_name
+				FROM meal_analysis ma
+				WHERE ma.meal_event_id = me.id
+				LIMIT 1
+			), ''),
+			p.eaten_at,
+			me.eaten_at,
+			me.time_source
+	`
+
+	var out MealTimeUpdate
+	if err := r.db.QueryRow(ctx, q, mealEventID, userID, eatenAt).Scan(
+		&out.MealEventID,
+		&out.CanonicalName,
+		&out.PreviousEatenAt,
+		&out.UpdatedEatenAt,
+		&out.TimeSource,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("update meal_event eaten_at by id and user_id: %w", err)
+	}
+
+	return &out, nil
+}
+
+func (r *MealEventsRepository) DeleteByIDAndUserID(ctx context.Context, mealEventID int64, userID string) (*models.MealEvent, error) {
+	event, err := r.GetByIDAndUserID(ctx, mealEventID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if event == nil {
+		return nil, nil
+	}
+
+	const deleteAnalysisQ = `DELETE FROM meal_analysis WHERE meal_event_id = $1 AND user_id = $2`
+	if _, err := r.db.Exec(ctx, deleteAnalysisQ, mealEventID, userID); err != nil {
+		return nil, fmt.Errorf("delete meal_analysis by meal_event_id and user_id: %w", err)
+	}
+
+	const deleteEventQ = `DELETE FROM meal_events WHERE id = $1 AND user_id = $2`
+	if _, err := r.db.Exec(ctx, deleteEventQ, mealEventID, userID); err != nil {
+		return nil, fmt.Errorf("delete meal_event by id and user_id: %w", err)
+	}
+	return event, nil
 }
