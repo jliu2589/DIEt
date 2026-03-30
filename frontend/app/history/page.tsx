@@ -5,6 +5,14 @@ import { getRecentMeals, type RecentMeal } from "@/lib/api";
 
 const USER_ID = "demo-user";
 
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleString();
+}
+
+function renderMacro(value: number | null) {
+  return value == null ? "—" : `${value} g`;
+}
+
 export default function HistoryPage() {
   const [meals, setMeals] = useState<RecentMeal[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,7 +48,7 @@ export default function HistoryPage() {
           <thead className="bg-slate-100 text-left text-slate-700">
             <tr>
               <th className="px-4 py-3 font-medium">Meal</th>
-              <th className="px-4 py-3 font-medium">Timestamp</th>
+              <th className="px-4 py-3 font-medium">Time</th>
               <th className="px-4 py-3 font-medium">Calories</th>
               <th className="px-4 py-3 font-medium">Protein</th>
               <th className="px-4 py-3 font-medium">Carbs</th>
@@ -68,11 +76,15 @@ export default function HistoryPage() {
               meals.map((meal) => (
                 <tr key={meal.meal_event_id} className="border-t border-slate-100">
                   <td className="px-4 py-3">{meal.canonical_name}</td>
-                  <td className="px-4 py-3">{new Date(meal.eaten_at).toLocaleString()}</td>
-                  <td className="px-4 py-3">{meal.calories_kcal}</td>
-                  <td className="px-4 py-3">{meal.protein_g} g</td>
-                  <td className="px-4 py-3">{meal.carbohydrate_g} g</td>
-                  <td className="px-4 py-3">{meal.fat_g} g</td>
+                  <td className="px-4 py-3">
+                    <div>{formatDateTime(meal.eaten_at)}</div>
+                    <div className="text-xs text-slate-500">Logged: {formatDateTime(meal.logged_at)}</div>
+                    {meal.time_source && <div className="text-xs text-slate-500">Source: {meal.time_source}</div>}
+                  </td>
+                  <td className="px-4 py-3">{meal.calories_kcal ?? "—"}</td>
+                  <td className="px-4 py-3">{renderMacro(meal.protein_g)}</td>
+                  <td className="px-4 py-3">{renderMacro(meal.carbohydrate_g)}</td>
+                  <td className="px-4 py-3">{renderMacro(meal.fat_g)}</td>
                 </tr>
               ))}
           </tbody>

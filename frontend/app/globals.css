@@ -7,5 +7,6 @@
 }
 
 body {
-  @apply bg-slate-50 text-slate-900;
+  @apply bg-stone-100 text-stone-900 antialiased;
+  font-family: "Inter", "Avenir Next", "Helvetica Neue", "Segoe UI", sans-serif;
 }
