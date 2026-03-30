@@ -3,12 +3,16 @@ package meal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"diet/internal/models"
 	"diet/internal/repositories"
+	canonicalfoodssvc "diet/internal/services/canonical_foods"
+	inputclassifier "diet/internal/services/input_classifier"
 	openaisvc "diet/internal/services/openai"
 )
 
@@ -16,18 +20,31 @@ type Analyzer interface {
 	AnalyzeMealText(ctx context.Context, rawText string) (openaisvc.MealTextAnalysis, error)
 }
 
+type InputClassifier interface {
+	Classify(rawText string) string
+}
+
 type Service struct {
-	mealEventsRepo   *repositories.MealEventsRepository
-	mealAnalysisRepo *repositories.MealAnalysisRepository
-	mealMemoryRepo   *repositories.MealMemoryRepository
-	dailySummaryRepo *repositories.DailyNutritionSummaryRepository
-	mealTextAnalyzer Analyzer
+	mealEventsRepo     *repositories.MealEventsRepository
+	mealAnalysisRepo   *repositories.MealAnalysisRepository
+	mealMemoryRepo     *repositories.MealMemoryRepository
+	dailySummaryRepo   *repositories.DailyNutritionSummaryRepository
+	mealsRepo          *repositories.MealsRepository
+	mealItemsRepo      *repositories.MealItemsRepository
+	canonicalFoodsRepo *repositories.CanonicalFoodsRepository
+	txManager          *repositories.TxManager
+	mealTextAnalyzer   Analyzer
+	classifier         InputClassifier
 }
 
 const (
-	defaultRecentMealsLimit = 20
-	maxRecentMealsLimit     = 100
+	defaultRecentMealsLimit   = 20
+	maxRecentMealsLimit       = 100
+	defaultReusableMealSearch = 50
+	reusableMatchThreshold    = 0.80
 )
+
+var ErrOpenAIFallbackDisabled = errors.New("openai fallback is disabled")
 
 type ProcessTextMealInput struct {
 	UserID          string
@@ -38,20 +55,31 @@ type ProcessTextMealInput struct {
 }
 
 type ProcessTextMealResult struct {
-	MealEventID      int64                  `json:"meal_event_id"`
-	Source           string                 `json:"source"`
-	CanonicalName    string                 `json:"canonical_name"`
-	ConfidenceScore  *float64               `json:"confidence_score,omitempty"`
-	Assumptions      []string               `json:"assumptions,omitempty"`
-	Items            []models.MealItem      `json:"items,omitempty"`
-	Nutrition        models.NutritionFields `json:"nutrition"`
-	DailySummaryDate string                 `json:"daily_summary_date"`
+	Intent            string                 `json:"intent"`
+	Logged            bool                   `json:"logged"`
+	Message           string                 `json:"message"`
+	MealEventID       int64                  `json:"meal_event_id"`
+	Source            string                 `json:"source"`
+	ProcessedFrom     string                 `json:"processed_from"`
+	LoggedAt          time.Time              `json:"logged_at"`
+	EatenAt           time.Time              `json:"eaten_at"`
+	TimeSource        string                 `json:"time_source"`
+	CanonicalName     string                 `json:"canonical_name"`
+	ConfidenceScore   *float64               `json:"confidence_score,omitempty"`
+	Assumptions       []string               `json:"assumptions,omitempty"`
+	Items             []models.MealItem      `json:"items,omitempty"`
+	Nutrition         models.NutritionFields `json:"nutrition"`
+	DailySummaryDate  string                 `json:"daily_summary_date"`
+	MatchReason       *string                `json:"match_reason,omitempty"`
+	TokenOverlapScore *float64               `json:"token_overlap_score,omitempty"`
 }
 
 type RecentMealResult struct {
 	MealEventID   int64     `json:"meal_event_id"`
 	CanonicalName string    `json:"canonical_name"`
+	LoggedAt      time.Time `json:"logged_at"`
 	EatenAt       time.Time `json:"eaten_at"`
+	TimeSource    string    `json:"time_source"`
 	CaloriesKcal  *float64  `json:"calories_kcal,omitempty"`
 	ProteinG      *float64  `json:"protein_g,omitempty"`
 	CarbohydrateG *float64  `json:"carbohydrate_g,omitempty"`
@@ -59,64 +87,203 @@ type RecentMealResult struct {
 	Source        string    `json:"source"`
 }
 
+type EditMealTimeResult struct {
+	MealEventID   int64     `json:"meal_event_id"`
+	CanonicalName string    `json:"canonical_name"`
+	EatenAt       time.Time `json:"eaten_at"`
+	TimeSource    string    `json:"time_source"`
+}
+
+type MealDetailResult struct {
+	MealEventID   int64                  `json:"meal_event_id"`
+	CanonicalName string                 `json:"canonical_name"`
+	LoggedAt      time.Time              `json:"logged_at"`
+	EatenAt       time.Time              `json:"eaten_at"`
+	TimeSource    string                 `json:"time_source"`
+	Source        string                 `json:"source"`
+	RawText       string                 `json:"raw_text,omitempty"`
+	Assumptions   []string               `json:"assumptions,omitempty"`
+	Items         []models.MealItem      `json:"items,omitempty"`
+	Nutrition     models.NutritionFields `json:"nutrition"`
+}
+
+type UpdateMealInput struct {
+	MealEventID   int64
+	UserID        string
+	RawText       *string
+	CanonicalName *string
+	CaloriesKcal  *float64
+	ProteinG      *float64
+	CarbohydrateG *float64
+	FatG          *float64
+	EatenAt       *time.Time
+}
+
 func NewService(
 	mealEventsRepo *repositories.MealEventsRepository,
 	mealAnalysisRepo *repositories.MealAnalysisRepository,
 	mealMemoryRepo *repositories.MealMemoryRepository,
 	dailySummaryRepo *repositories.DailyNutritionSummaryRepository,
+	mealsRepo *repositories.MealsRepository,
+	mealItemsRepo *repositories.MealItemsRepository,
+	canonicalFoodsRepo *repositories.CanonicalFoodsRepository,
+	txManager *repositories.TxManager,
 	mealTextAnalyzer Analyzer,
+	classifier InputClassifier,
 ) *Service {
 	return &Service{
-		mealEventsRepo:   mealEventsRepo,
-		mealAnalysisRepo: mealAnalysisRepo,
-		mealMemoryRepo:   mealMemoryRepo,
-		dailySummaryRepo: dailySummaryRepo,
-		mealTextAnalyzer: mealTextAnalyzer,
+		mealEventsRepo:     mealEventsRepo,
+		mealAnalysisRepo:   mealAnalysisRepo,
+		mealMemoryRepo:     mealMemoryRepo,
+		dailySummaryRepo:   dailySummaryRepo,
+		mealsRepo:          mealsRepo,
+		mealItemsRepo:      mealItemsRepo,
+		canonicalFoodsRepo: canonicalFoodsRepo,
+		txManager:          txManager,
+		mealTextAnalyzer:   mealTextAnalyzer,
+		classifier:         classifier,
 	}
 }
 
 func (s *Service) ProcessTextMeal(ctx context.Context, input ProcessTextMealInput) (*ProcessTextMealResult, error) {
+	started := time.Now()
 	if strings.TrimSpace(input.UserID) == "" {
 		return nil, fmt.Errorf("user_id is required")
 	}
 	if strings.TrimSpace(input.RawText) == "" {
 		return nil, fmt.Errorf("raw_text is required")
 	}
+	intent := inputclassifier.IntentMealLog
+	classifyStart := time.Now()
+	if s.classifier != nil {
+		intent = s.classifier.Classify(input.RawText)
+	}
+	slog.Info("meal.process.classified",
+		"user_id", input.UserID,
+		"intent", intent,
+		"classify_latency_ms", time.Since(classifyStart).Milliseconds(),
+	)
+	if intent != inputclassifier.IntentMealLog {
+		slog.Info("meal.process.skipped_non_meal",
+			"user_id", input.UserID,
+			"intent", intent,
+			"total_latency_ms", time.Since(started).Milliseconds(),
+		)
+		return &ProcessTextMealResult{
+			Intent:  intent,
+			Logged:  false,
+			Message: nonMealIntentMessage(intent),
+		}, nil
+	}
 
 	eatenAt := input.EatenAt
+	timeSource := "explicit"
 	if eatenAt.IsZero() {
-		eatenAt = time.Now().UTC()
+		if parsedEatenAt, ok := parseEatenAtFromText(input.RawText, time.Now().UTC()); ok {
+			eatenAt = parsedEatenAt
+			timeSource = "explicit"
+		} else {
+			eatenAt = time.Now().UTC()
+			timeSource = "default_now"
+		}
 	}
+	eatenAt = eatenAt.UTC()
 	if strings.TrimSpace(input.Source) == "" {
 		input.Source = "text"
 	}
 
 	rawText := input.RawText
-	event, err := s.mealEventsRepo.Insert(ctx, models.MealEvent{
-		UserID:           input.UserID,
-		Source:           input.Source,
-		SourceMessageID:  input.SourceMessageID,
-		EventType:        "text",
-		RawText:          &rawText,
-		EatenAt:          eatenAt,
-		ProcessingStatus: "pending",
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create meal_event: %w", err)
-	}
-
 	fingerprint := FingerprintFromText(input.RawText)
 
 	cached, err := s.mealMemoryRepo.FindByFingerprintHash(ctx, fingerprint)
 	if err != nil {
+		slog.Error("meal.process.cache_lookup_failed", "user_id", input.UserID, "error", err)
 		return nil, fmt.Errorf("lookup meal memory: %w", err)
 	}
+	slog.Info("meal.process.matcher.cache_lookup",
+		"user_id", input.UserID,
+		"cache_hit", cached != nil,
+	)
 
-	if cached != nil {
-		return s.processFromCache(ctx, event, cached)
+	if s.txManager == nil {
+		slog.Info("meal.process.persistence.tx_disabled", "user_id", input.UserID)
+		event, err := s.mealEventsRepo.Insert(ctx, models.MealEvent{
+			UserID:           input.UserID,
+			Source:           input.Source,
+			SourceMessageID:  input.SourceMessageID,
+			EventType:        "text",
+			RawText:          &rawText,
+			LoggedAt:         time.Now().UTC(),
+			EatenAt:          eatenAt,
+			TimeSource:       timeSource,
+			ProcessingStatus: "pending",
+		})
+		if err != nil {
+			slog.Error("meal.process.persistence.insert_event_failed", "user_id", input.UserID, "error", err)
+			return nil, fmt.Errorf("create meal_event: %w", err)
+		}
+		slog.Info("meal.process.persistence.event_created", "user_id", input.UserID, "meal_event_id", event.ID)
+		if cached != nil {
+			slog.Info("meal.process.matcher.path", "user_id", input.UserID, "meal_event_id", event.ID, "path", "cache")
+			return s.processFromCache(ctx, event, cached)
+		}
+		if reusableResult, err := s.processFromReusableDatabase(ctx, event, fingerprint, input.RawText); err != nil {
+			slog.Error("meal.process.matcher.reusable_failed", "user_id", input.UserID, "meal_event_id", event.ID, "error", err)
+			return nil, err
+		} else if reusableResult != nil {
+			slog.Info("meal.process.matcher.path", "user_id", input.UserID, "meal_event_id", event.ID, "path", "reusable_db", "total_latency_ms", time.Since(started).Milliseconds())
+			return reusableResult, nil
+		}
+		slog.Info("meal.process.matcher.path", "user_id", input.UserID, "meal_event_id", event.ID, "path", "openai")
+		return s.processWithOpenAI(ctx, event, fingerprint, input.RawText)
 	}
 
-	return s.processWithOpenAI(ctx, event, fingerprint, input.RawText)
+	var out *ProcessTextMealResult
+	txStarted := time.Now()
+	if err := s.txManager.WithinTx(ctx, func(txRepos repositories.Repositories) error {
+		txSvc := s.withRepos(txRepos)
+		event, err := txSvc.mealEventsRepo.Insert(ctx, models.MealEvent{
+			UserID:           input.UserID,
+			Source:           input.Source,
+			SourceMessageID:  input.SourceMessageID,
+			EventType:        "text",
+			RawText:          &rawText,
+			LoggedAt:         time.Now().UTC(),
+			EatenAt:          eatenAt,
+			TimeSource:       timeSource,
+			ProcessingStatus: "pending",
+		})
+		if err != nil {
+			slog.Error("meal.process.persistence.insert_event_failed", "user_id", input.UserID, "error", err)
+			return fmt.Errorf("create meal_event: %w", err)
+		}
+		slog.Info("meal.process.persistence.event_created", "user_id", input.UserID, "meal_event_id", event.ID)
+
+		if cached != nil {
+			slog.Info("meal.process.matcher.path", "user_id", input.UserID, "meal_event_id", event.ID, "path", "cache")
+			out, err = txSvc.processFromCache(ctx, event, cached)
+			return err
+		}
+
+		if reusableResult, err := txSvc.processFromReusableDatabase(ctx, event, fingerprint, input.RawText); err != nil {
+			slog.Error("meal.process.matcher.reusable_failed", "user_id", input.UserID, "meal_event_id", event.ID, "error", err)
+			return err
+		} else if reusableResult != nil {
+			slog.Info("meal.process.matcher.path", "user_id", input.UserID, "meal_event_id", event.ID, "path", "reusable_db")
+			out = reusableResult
+			return nil
+		}
+
+		slog.Info("meal.process.matcher.path", "user_id", input.UserID, "meal_event_id", event.ID, "path", "openai")
+		out, err = txSvc.processWithOpenAI(ctx, event, fingerprint, input.RawText)
+		return err
+	}); err != nil {
+		slog.Error("meal.process.persistence.tx_failed", "user_id", input.UserID, "tx_latency_ms", time.Since(txStarted).Milliseconds(), "error", err)
+		return nil, err
+	}
+	slog.Info("meal.process.persistence.tx_succeeded", "user_id", input.UserID, "tx_latency_ms", time.Since(txStarted).Milliseconds(), "total_latency_ms", time.Since(started).Milliseconds())
+
+	return out, nil
 }
 
 func (s *Service) GetRecentMeals(ctx context.Context, userID string, limit int) ([]RecentMealResult, error) {
@@ -141,7 +308,9 @@ func (s *Service) GetRecentMeals(ctx context.Context, userID string, limit int) 
 		out = append(out, RecentMealResult{
 			MealEventID:   row.MealEventID,
 			CanonicalName: row.CanonicalName,
+			LoggedAt:      row.LoggedAt,
 			EatenAt:       row.EatenAt,
+			TimeSource:    row.TimeSource,
 			CaloriesKcal:  row.CaloriesKcal,
 			ProteinG:      row.ProteinG,
 			CarbohydrateG: row.CarbohydrateG,
@@ -151,6 +320,179 @@ func (s *Service) GetRecentMeals(ctx context.Context, userID string, limit int) 
 	}
 
 	return out, nil
+}
+
+func (s *Service) EditMealTime(ctx context.Context, mealEventID int64, userID string, eatenAt time.Time) (*EditMealTimeResult, error) {
+	if mealEventID <= 0 {
+		return nil, fmt.Errorf("meal_event_id must be greater than 0")
+	}
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, fmt.Errorf("user_id is required")
+	}
+	if eatenAt.IsZero() {
+		return nil, fmt.Errorf("eaten_at is required")
+	}
+
+	updated, err := s.mealEventsRepo.UpdateEatenAtByIDAndUserID(ctx, mealEventID, userID, eatenAt.UTC())
+	if err != nil {
+		return nil, fmt.Errorf("edit meal time: %w", err)
+	}
+	if updated == nil {
+		return nil, nil
+	}
+
+	oldDate := dateOnly(updated.PreviousEatenAt)
+	newDate := dateOnly(updated.UpdatedEatenAt)
+	if err := s.dailySummaryRepo.ReconcileForUserDate(ctx, userID, oldDate); err != nil {
+		return nil, fmt.Errorf("reconcile old summary date: %w", err)
+	}
+	if !oldDate.Equal(newDate) {
+		if err := s.dailySummaryRepo.ReconcileForUserDate(ctx, userID, newDate); err != nil {
+			return nil, fmt.Errorf("reconcile new summary date: %w", err)
+		}
+	}
+
+	return &EditMealTimeResult{
+		MealEventID:   updated.MealEventID,
+		CanonicalName: updated.CanonicalName,
+		EatenAt:       updated.UpdatedEatenAt,
+		TimeSource:    updated.TimeSource,
+	}, nil
+}
+
+// ReconcileDailySummaryForDate recomputes a user's daily summary from meal history.
+// This is intended for edit/delete maintenance flows.
+func (s *Service) ReconcileDailySummaryForDate(ctx context.Context, userID string, date time.Time) error {
+	if strings.TrimSpace(userID) == "" {
+		return fmt.Errorf("user_id is required")
+	}
+	return s.dailySummaryRepo.ReconcileForUserDate(ctx, userID, date)
+}
+
+func (s *Service) GetMealByID(ctx context.Context, mealEventID int64, userID string) (*MealDetailResult, error) {
+	if mealEventID <= 0 {
+		return nil, fmt.Errorf("meal_event_id must be greater than 0")
+	}
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, fmt.Errorf("user_id is required")
+	}
+
+	event, err := s.mealEventsRepo.GetByIDAndUserID(ctx, mealEventID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get meal event: %w", err)
+	}
+	if event == nil {
+		return nil, nil
+	}
+	analysis, err := s.mealAnalysisRepo.GetByMealEventIDAndUserID(ctx, mealEventID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get meal analysis: %w", err)
+	}
+	if analysis == nil {
+		return nil, nil
+	}
+
+	out := &MealDetailResult{
+		MealEventID:   event.ID,
+		CanonicalName: analysis.CanonicalName,
+		LoggedAt:      event.LoggedAt.UTC(),
+		EatenAt:       event.EatenAt.UTC(),
+		TimeSource:    event.TimeSource,
+		Source:        event.Source,
+		Nutrition:     analysis.NutritionFields,
+	}
+	if event.RawText != nil {
+		out.RawText = *event.RawText
+	}
+	_ = json.Unmarshal(analysis.AssumptionsJSON, &out.Assumptions)
+	_ = json.Unmarshal(analysis.ItemsJSON, &out.Items)
+	return out, nil
+}
+
+func (s *Service) UpdateMeal(ctx context.Context, input UpdateMealInput) (*MealDetailResult, error) {
+	if input.MealEventID <= 0 {
+		return nil, fmt.Errorf("meal_event_id must be greater than 0")
+	}
+	input.UserID = strings.TrimSpace(input.UserID)
+	if input.UserID == "" {
+		return nil, fmt.Errorf("user_id is required")
+	}
+	before, err := s.GetMealByID(ctx, input.MealEventID, input.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if before == nil {
+		return nil, nil
+	}
+
+	if input.RawText != nil {
+		raw := strings.TrimSpace(*input.RawText)
+		if raw != "" {
+			if err := s.mealEventsRepo.UpdateRawTextByIDAndUserID(ctx, input.MealEventID, input.UserID, raw); err != nil {
+				return nil, fmt.Errorf("update meal raw_text: %w", err)
+			}
+		}
+	}
+
+	if input.EatenAt != nil && !input.EatenAt.IsZero() {
+		if _, err := s.EditMealTime(ctx, input.MealEventID, input.UserID, input.EatenAt.UTC()); err != nil {
+			return nil, err
+		}
+	}
+
+	updateModel := models.MealAnalysis{
+		MealEventID:   input.MealEventID,
+		UserID:        input.UserID,
+		CanonicalName: strings.TrimSpace(valueOrEmpty(input.CanonicalName)),
+		NutritionFields: models.NutritionFields{
+			CaloriesKcal:  input.CaloriesKcal,
+			ProteinG:      input.ProteinG,
+			CarbohydrateG: input.CarbohydrateG,
+			FatG:          input.FatG,
+		},
+	}
+	if err := s.mealAnalysisRepo.UpdateEditableByMealEventIDAndUserID(ctx, updateModel); err != nil {
+		return nil, fmt.Errorf("update meal analysis: %w", err)
+	}
+
+	reconcileDate := before.EatenAt
+	if input.EatenAt != nil && !input.EatenAt.IsZero() {
+		reconcileDate = input.EatenAt.UTC()
+	}
+	if err := s.ReconcileDailySummaryForDate(ctx, input.UserID, reconcileDate); err != nil {
+		return nil, fmt.Errorf("reconcile updated summary date: %w", err)
+	}
+	return s.GetMealByID(ctx, input.MealEventID, input.UserID)
+}
+
+func (s *Service) DeleteMeal(ctx context.Context, mealEventID int64, userID string) error {
+	if mealEventID <= 0 {
+		return fmt.Errorf("meal_event_id must be greater than 0")
+	}
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return fmt.Errorf("user_id is required")
+	}
+	deleted, err := s.mealEventsRepo.DeleteByIDAndUserID(ctx, mealEventID, userID)
+	if err != nil {
+		return fmt.Errorf("delete meal: %w", err)
+	}
+	if deleted == nil {
+		return nil
+	}
+	if err := s.dailySummaryRepo.ReconcileForUserDate(ctx, userID, deleted.EatenAt); err != nil {
+		return fmt.Errorf("reconcile summary after delete: %w", err)
+	}
+	return nil
+}
+
+func valueOrEmpty(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }
 
 func (s *Service) processFromCache(ctx context.Context, event *models.MealEvent, cached *models.MealMemory) (*ProcessTextMealResult, error) {
@@ -166,20 +508,31 @@ func (s *Service) processFromCache(ctx context.Context, event *models.MealEvent,
 	}
 
 	if err := s.mealAnalysisRepo.Insert(ctx, analysis); err != nil {
+		slog.Error("meal.process.cache.insert_analysis_failed", "user_id", event.UserID, "meal_event_id", event.ID, "error", err)
 		return nil, fmt.Errorf("insert meal_analysis from cache: %w", err)
 	}
 	if err := s.mealEventsRepo.UpdateProcessingStatus(ctx, event.ID, "processed"); err != nil {
+		slog.Error("meal.process.cache.update_status_failed", "user_id", event.UserID, "meal_event_id", event.ID, "error", err)
 		return nil, fmt.Errorf("mark meal_event processed: %w", err)
 	}
 
 	summaryDate := dateOnly(event.EatenAt)
 	if _, err := s.updateDailySummary(ctx, event.UserID, summaryDate, cached.NutritionFields); err != nil {
+		slog.Error("meal.process.cache.summary_update_failed", "user_id", event.UserID, "meal_event_id", event.ID, "error", err)
 		return nil, err
 	}
+	slog.Info("meal.process.cache.persisted", "user_id", event.UserID, "meal_event_id", event.ID, "summary_date", summaryDate.Format("2006-01-02"))
 
 	result := &ProcessTextMealResult{
+		Intent:           inputclassifier.IntentMealLog,
+		Logged:           true,
+		Message:          "Logged your meal.",
 		MealEventID:      event.ID,
-		Source:           "cache",
+		Source:           event.Source,
+		ProcessedFrom:    "cache",
+		LoggedAt:         event.LoggedAt,
+		EatenAt:          event.EatenAt,
+		TimeSource:       event.TimeSource,
 		CanonicalName:    cached.CanonicalName,
 		ConfidenceScore:  cached.ConfidenceScore,
 		Nutrition:        cached.NutritionFields,
@@ -193,8 +546,15 @@ func (s *Service) processFromCache(ctx context.Context, event *models.MealEvent,
 }
 
 func (s *Service) processWithOpenAI(ctx context.Context, event *models.MealEvent, fingerprint, rawText string) (*ProcessTextMealResult, error) {
+	if s.mealTextAnalyzer == nil {
+		slog.Warn("meal.process.openai.disabled", "user_id", event.UserID, "meal_event_id", event.ID)
+		return nil, ErrOpenAIFallbackDisabled
+	}
+
+	openAIStart := time.Now()
 	openAIResult, err := s.mealTextAnalyzer.AnalyzeMealText(ctx, rawText)
 	if err != nil {
+		slog.Error("meal.process.openai.analyze_failed", "user_id", event.UserID, "meal_event_id", event.ID, "error", err)
 		return nil, fmt.Errorf("analyze meal text: %w", err)
 	}
 
@@ -227,6 +587,7 @@ func (s *Service) processWithOpenAI(ctx context.Context, event *models.MealEvent
 	}
 
 	if err := s.mealAnalysisRepo.Insert(ctx, analysis); err != nil {
+		slog.Error("meal.process.openai.insert_analysis_failed", "user_id", event.UserID, "meal_event_id", event.ID, "error", err)
 		return nil, fmt.Errorf("insert meal_analysis from openai: %w", err)
 	}
 
@@ -239,21 +600,37 @@ func (s *Service) processWithOpenAI(ctx context.Context, event *models.MealEvent
 		RawAnalysisJSON: rawAnalysisJSON,
 		NutritionFields: nutrition,
 	}); err != nil {
+		slog.Error("meal.process.openai.memory_upsert_failed", "user_id", event.UserID, "meal_event_id", event.ID, "error", err)
 		return nil, fmt.Errorf("upsert meal_memory: %w", err)
 	}
 
+	if err := s.maybeSaveReusableMealTemplate(ctx, fingerprint, openAIResult.CanonicalName, openAIResult.ConfidenceScore, items); err != nil {
+		slog.Error("meal.process.openai.reusable_save_failed", "user_id", event.UserID, "meal_event_id", event.ID, "error", err)
+		return nil, fmt.Errorf("save reusable meal template: %w", err)
+	}
+
 	if err := s.mealEventsRepo.UpdateProcessingStatus(ctx, event.ID, "processed"); err != nil {
+		slog.Error("meal.process.openai.update_status_failed", "user_id", event.UserID, "meal_event_id", event.ID, "error", err)
 		return nil, fmt.Errorf("mark meal_event processed: %w", err)
 	}
 
 	summaryDate := dateOnly(event.EatenAt)
 	if _, err := s.updateDailySummary(ctx, event.UserID, summaryDate, nutrition); err != nil {
+		slog.Error("meal.process.openai.summary_update_failed", "user_id", event.UserID, "meal_event_id", event.ID, "error", err)
 		return nil, err
 	}
+	slog.Info("meal.process.openai.persisted", "user_id", event.UserID, "meal_event_id", event.ID, "openai_latency_ms", time.Since(openAIStart).Milliseconds(), "summary_date", summaryDate.Format("2006-01-02"))
 
 	return &ProcessTextMealResult{
+		Intent:           inputclassifier.IntentMealLog,
+		Logged:           true,
+		Message:          "Logged your meal.",
 		MealEventID:      event.ID,
-		Source:           "openai",
+		Source:           event.Source,
+		ProcessedFrom:    "openai",
+		LoggedAt:         event.LoggedAt,
+		EatenAt:          event.EatenAt,
+		TimeSource:       event.TimeSource,
 		CanonicalName:    openAIResult.CanonicalName,
 		ConfidenceScore:  openAIResult.ConfidenceScore,
 		Assumptions:      openAIResult.Assumptions,
@@ -261,6 +638,290 @@ func (s *Service) processWithOpenAI(ctx context.Context, event *models.MealEvent
 		Nutrition:        nutrition,
 		DailySummaryDate: summaryDate.Format("2006-01-02"),
 	}, nil
+}
+
+func (s *Service) processFromReusableDatabase(ctx context.Context, event *models.MealEvent, fingerprint string, rawText string) (*ProcessTextMealResult, error) {
+	if s.mealsRepo == nil || s.mealItemsRepo == nil || s.canonicalFoodsRepo == nil {
+		return nil, nil
+	}
+
+	matchReason := "exact_fingerprint_match"
+	tokenOverlap := 1.0
+
+	reusableMeal, err := s.mealsRepo.GetByFingerprintHash(ctx, fingerprint)
+	if err != nil {
+		return nil, fmt.Errorf("lookup reusable meal by fingerprint: %w", err)
+	}
+	if reusableMeal == nil {
+		matched, reason, overlap, err := s.findReusableMealMatch(ctx, rawText)
+		if err != nil {
+			return nil, err
+		}
+		if matched == nil || overlap < reusableMatchThreshold {
+			slog.Info("meal.process.reusable.no_match", "user_id", event.UserID, "meal_event_id", event.ID, "reason", reason, "overlap", overlap)
+			return nil, nil
+		}
+		matchReason = reason
+		tokenOverlap = overlap
+		reusableMeal, err = s.mealsRepo.GetByID(ctx, matched.ID)
+		if err != nil {
+			return nil, fmt.Errorf("get matched reusable meal by id: %w", err)
+		}
+		if reusableMeal == nil {
+			return nil, nil
+		}
+	}
+
+	storedItems, err := s.mealItemsRepo.ListByMealID(ctx, reusableMeal.ID)
+	if err != nil {
+		return nil, fmt.Errorf("list reusable meal items: %w", err)
+	}
+
+	var total models.NutritionFields
+	analysisItems := make([]models.MealItem, 0, len(storedItems))
+	for _, item := range storedItems {
+		food, err := s.canonicalFoodsRepo.GetByID(ctx, item.FoodID)
+		if err != nil {
+			return nil, fmt.Errorf("get canonical food for reusable meal item: %w", err)
+		}
+		if food == nil {
+			continue
+		}
+
+		scaled, err := canonicalfoodssvc.ScaleNutrition(*food, item.Quantity, item.Unit)
+		if err != nil {
+			return nil, fmt.Errorf("scale nutrition for reusable meal item: %w", err)
+		}
+
+		total = mergeNutrition(total, scaled.Nutrition)
+		analysisItems = append(analysisItems, models.MealItem{
+			Name:          food.CanonicalName,
+			Quantity:      &item.Quantity,
+			Unit:          item.Unit,
+			CaloriesKcal:  scaled.Nutrition.CaloriesKcal,
+			ProteinG:      scaled.Nutrition.ProteinG,
+			CarbohydrateG: scaled.Nutrition.CarbohydrateG,
+			FatG:          scaled.Nutrition.FatG,
+		})
+	}
+
+	itemsJSON, _ := json.Marshal(analysisItems)
+	analysis := models.MealAnalysis{
+		MealEventID:     event.ID,
+		UserID:          event.UserID,
+		CanonicalName:   reusableMeal.CanonicalName,
+		ConfidenceScore: reusableMeal.ConfidenceScore,
+		ItemsJSON:       itemsJSON,
+		NutritionFields: total,
+	}
+
+	if err := s.mealAnalysisRepo.Insert(ctx, analysis); err != nil {
+		return nil, fmt.Errorf("insert meal_analysis from reusable meal: %w", err)
+	}
+
+	if _, err := s.mealMemoryRepo.Upsert(ctx, models.MealMemory{
+		FingerprintHash: fingerprint,
+		CanonicalName:   reusableMeal.CanonicalName,
+		ConfidenceScore: reusableMeal.ConfidenceScore,
+		ItemsJSON:       itemsJSON,
+		NutritionFields: total,
+	}); err != nil {
+		return nil, fmt.Errorf("upsert meal_memory from reusable meal: %w", err)
+	}
+
+	if err := s.mealEventsRepo.UpdateProcessingStatus(ctx, event.ID, "processed"); err != nil {
+		return nil, fmt.Errorf("mark meal_event processed: %w", err)
+	}
+
+	summaryDate := dateOnly(event.EatenAt)
+	if _, err := s.updateDailySummary(ctx, event.UserID, summaryDate, total); err != nil {
+		return nil, err
+	}
+	slog.Info("meal.process.reusable.persisted",
+		"user_id", event.UserID,
+		"meal_event_id", event.ID,
+		"match_reason", matchReason,
+		"token_overlap_score", tokenOverlap,
+		"summary_date", summaryDate.Format("2006-01-02"),
+	)
+
+	return &ProcessTextMealResult{
+		Intent:            inputclassifier.IntentMealLog,
+		Logged:            true,
+		Message:           "Logged your meal.",
+		MealEventID:       event.ID,
+		Source:            event.Source,
+		ProcessedFrom:     "reusable_db",
+		LoggedAt:          event.LoggedAt,
+		EatenAt:           event.EatenAt,
+		TimeSource:        event.TimeSource,
+		CanonicalName:     reusableMeal.CanonicalName,
+		ConfidenceScore:   reusableMeal.ConfidenceScore,
+		Items:             analysisItems,
+		Nutrition:         total,
+		DailySummaryDate:  summaryDate.Format("2006-01-02"),
+		MatchReason:       &matchReason,
+		TokenOverlapScore: &tokenOverlap,
+	}, nil
+}
+
+func (s *Service) findReusableMealMatch(ctx context.Context, rawText string) (*repositories.MealCandidate, string, float64, error) {
+	if s.mealsRepo == nil {
+		return nil, "no_repository", 0, nil
+	}
+
+	candidates, err := s.mealsRepo.ListCandidates(ctx, defaultReusableMealSearch)
+	if err != nil {
+		return nil, "candidate_query_error", 0, fmt.Errorf("list reusable meal candidates: %w", err)
+	}
+	if len(candidates) == 0 {
+		return nil, "no_candidates", 0, nil
+	}
+
+	normalizedText := NormalizeText(rawText)
+	inputTokens := CanonicalTokens(rawText)
+	if normalizedText == "" || len(inputTokens) == 0 {
+		return nil, "empty_input", 0, nil
+	}
+
+	bestScore := 0.0
+	bestReason := "no_match"
+	var best *repositories.MealCandidate
+	for i := range candidates {
+		name := NormalizeText(candidates[i].CanonicalName)
+		if name == "" {
+			continue
+		}
+		if normalizedText == name {
+			score := 1.0
+			best = &candidates[i]
+			bestScore = score
+			bestReason = "canonical_name_match"
+			break
+		}
+
+		candidateTokens := CanonicalTokens(candidates[i].CanonicalName)
+		overlap := TokenOverlapScore(inputTokens, candidateTokens)
+		if overlap > bestScore {
+			best = &candidates[i]
+			bestScore = overlap
+			bestReason = "token_overlap_score"
+		}
+	}
+
+	if best == nil {
+		return nil, bestReason, 0, nil
+	}
+	return best, bestReason, bestScore, nil
+}
+
+func (s *Service) maybeSaveReusableMealTemplate(ctx context.Context, fingerprint string, canonicalName string, confidenceScore *float64, items []models.MealItem) error {
+	if s.mealsRepo == nil || s.mealItemsRepo == nil || s.canonicalFoodsRepo == nil {
+		return nil
+	}
+
+	if existing, err := s.mealsRepo.GetByFingerprintHash(ctx, fingerprint); err != nil {
+		return fmt.Errorf("lookup reusable meal by fingerprint before save: %w", err)
+	} else if existing != nil {
+		return nil
+	}
+
+	resolvedItems, err := s.resolveStoredMealItems(ctx, items)
+	if err != nil {
+		return fmt.Errorf("resolve stored meal items: %w", err)
+	}
+	if len(resolvedItems) == 0 {
+		return nil
+	}
+
+	structureHash := FingerprintFromCanonicalStructure(canonicalName, items)
+	if structureHash == "" {
+		return nil
+	}
+
+	if existing, err := s.mealsRepo.GetByStructureSignature(ctx, structureHash); err != nil {
+		return fmt.Errorf("lookup reusable meal by structure signature: %w", err)
+	} else if existing != nil {
+		return nil
+	}
+
+	sourceType := "canonical_structure"
+	mealRow, err := s.mealsRepo.Create(ctx, models.Meal{
+		CanonicalName:      canonicalName,
+		FingerprintHash:    &fingerprint,
+		StructureSignature: &structureHash,
+		SourceType:         &sourceType,
+		ConfidenceScore:    confidenceScore,
+	})
+	if err != nil {
+		return fmt.Errorf("create reusable meal template: %w", err)
+	}
+
+	for _, it := range resolvedItems {
+		if _, err := s.mealItemsRepo.Create(ctx, models.StoredMealItem{
+			MealID:   mealRow.ID,
+			FoodID:   it.FoodID,
+			Quantity: it.Quantity,
+			Unit:     it.Unit,
+		}); err != nil {
+			return fmt.Errorf("create reusable meal item: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (s *Service) resolveStoredMealItems(ctx context.Context, items []models.MealItem) ([]models.StoredMealItem, error) {
+	if len(items) == 0 {
+		return nil, nil
+	}
+	out := make([]models.StoredMealItem, 0, len(items))
+	for _, it := range items {
+		if strings.TrimSpace(it.Name) == "" || it.Quantity == nil || strings.TrimSpace(it.Unit) == "" {
+			continue
+		}
+		food, err := s.canonicalFoodsRepo.GetByCanonicalName(ctx, it.Name)
+		if err != nil {
+			return nil, fmt.Errorf("resolve food by canonical name: %w", err)
+		}
+		if food == nil {
+			continue
+		}
+		out = append(out, models.StoredMealItem{
+			FoodID:   food.ID,
+			Quantity: *it.Quantity,
+			Unit:     strings.TrimSpace(it.Unit),
+		})
+	}
+	return out, nil
+}
+
+func (s *Service) withRepos(repos repositories.Repositories) *Service {
+	return &Service{
+		mealEventsRepo:     repos.MealEvents,
+		mealAnalysisRepo:   repos.MealAnalysis,
+		mealMemoryRepo:     repos.MealMemory,
+		dailySummaryRepo:   repos.DailyNutritionSummary,
+		mealsRepo:          repos.Meals,
+		mealItemsRepo:      repos.MealItems,
+		canonicalFoodsRepo: repos.CanonicalFoods,
+		txManager:          nil,
+		mealTextAnalyzer:   s.mealTextAnalyzer,
+		classifier:         s.classifier,
+	}
+}
+
+func nonMealIntentMessage(intent string) string {
+	switch intent {
+	case inputclassifier.IntentWeightLog:
+		return "I detected a weight log, so I didn’t save this as a meal."
+	case inputclassifier.IntentRecommendationRequest:
+		return "I detected a recommendation request, so I didn’t save this as a meal."
+	case inputclassifier.IntentGeneralChat:
+		return "I detected general chat, so I didn’t save this as a meal."
+	default:
+		return "I couldn’t confidently detect a meal log, so nothing was saved."
+	}
 }
 
 func (s *Service) updateDailySummary(ctx context.Context, userID string, summaryDate time.Time, delta models.NutritionFields) (*models.DailyNutritionSummary, error) {
