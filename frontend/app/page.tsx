@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { getDashboardToday, getRecentMeals, getTrends, postChat, type ChatResponse, type RecentMeal, type TrendsPoint } from "../lib/api";
+import { editMealTime, getDashboardToday, getRecentMeals, getTrends, postChat, type ChatResponse, type RecentMeal, type TrendsPoint } from "../lib/api";
 
 const DASHBOARD_USER_ID = "demo-user-001";
 
@@ -47,8 +47,7 @@ export default function HomePage() {
     }))
   );
   const [chatInput, setChatInput] = useState("");
-  const [drafts, setDrafts] = useState<string[]>([]);
-  const [chatMessages, setChatMessages] = useState<string[]>([]);
+  const [chatTurns, setChatTurns] = useState<Array<{ id: number; userMessage: string; response: ChatResponse }>>([]);
   const [recentMeals, setRecentMeals] = useState<RecentMeal[]>([]);
   const [mealsError, setMealsError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -60,6 +59,10 @@ export default function HomePage() {
   const [trendPointsByRange, setTrendPointsByRange] = useState<Partial<Record<TrendRange, TrendsPoint[]>>>({});
   const [trendsError, setTrendsError] = useState<string | null>(null);
   const [isTrendsLoading, setIsTrendsLoading] = useState(false);
+  const [editingMealID, setEditingMealID] = useState<number | null>(null);
+  const [editingMealValue, setEditingMealValue] = useState("");
+  const [savingMealID, setSavingMealID] = useState<number | null>(null);
+  const [editMealError, setEditMealError] = useState<string | null>(null);
 
   async function refreshDashboard() {
     setDashboardError(null);
@@ -115,19 +118,6 @@ export default function HomePage() {
       });
   }, [activeRange, trendPointsByRange]);
 
-  function buildChatSummary(response: ChatResponse) {
-    if (response.meal_result) {
-      return `Meal logged: ${response.meal_result.canonical_name}`;
-    }
-    if (response.weight_result) {
-      return `Weight logged: ${response.weight_result.weight} ${response.weight_result.unit}`;
-    }
-    if (response.recommendation_result) {
-      return `Recommendation: ${response.recommendation_result.text}`;
-    }
-    return response.message_to_user;
-  }
-
   async function onSubmitChat(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmed = chatInput.trim();
@@ -139,8 +129,7 @@ export default function HomePage() {
 
     try {
       const response = await postChat(DASHBOARD_USER_ID, trimmed);
-      setDrafts((prev) => [trimmed, ...prev].slice(0, 3));
-      setChatMessages((prev) => [buildChatSummary(response), ...prev].slice(0, 3));
+      setChatTurns((prev) => [{ id: Date.now(), userMessage: trimmed, response }, ...prev].slice(0, 6));
       setChatInput("");
       await refreshDashboard();
     } catch (error) {
@@ -148,8 +137,27 @@ export default function HomePage() {
     } finally {
       setIsSubmitting(false);
     }
-    setDrafts((prev) => [trimmed, ...prev].slice(0, 3));
-    setChatInput("");
+  }
+
+  async function onSaveMealTime(mealEventID: number) {
+    if (!editingMealValue) {
+      return;
+    }
+    setSavingMealID(mealEventID);
+    setEditMealError(null);
+    try {
+      await editMealTime(mealEventID, {
+        user_id: DASHBOARD_USER_ID,
+        eaten_at: new Date(editingMealValue).toISOString()
+      });
+      setEditingMealID(null);
+      setEditingMealValue("");
+      await refreshDashboard();
+    } catch (error) {
+      setEditMealError(error instanceof Error ? error.message : "Could not update meal time");
+    } finally {
+      setSavingMealID(null);
+    }
   }
 
   return (
@@ -204,21 +212,19 @@ export default function HomePage() {
 
         {chatError && <p className="mt-2 text-xs text-rose-700">{chatError}</p>}
 
-        {drafts.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {drafts.map((draft, idx) => (
-              <p key={`${draft}-${idx}`} className="rounded-full border border-stone-200 bg-white px-3 py-1 text-xs text-stone-600">
-                {draft}
-              </p>
-            ))}
-          </div>
-        )}
-        {chatMessages.length > 0 && (
-          <div className="mt-2 space-y-1">
-            {chatMessages.map((message, idx) => (
-              <p key={`${message}-${idx}`} className="text-xs text-stone-600">
-                {message}
-              </p>
+        {chatTurns.length > 0 && (
+          <div className="mt-4 space-y-3">
+            {chatTurns.map((turn) => (
+              <article key={turn.id} className="space-y-2">
+                <div className="flex justify-end">
+                  <p className="max-w-[90%] rounded-2xl bg-stone-900 px-3 py-2 text-sm text-white sm:max-w-[75%]">{turn.userMessage}</p>
+                </div>
+                <div className="flex justify-start">
+                  <div className="w-full max-w-[92%] rounded-2xl border border-stone-200 bg-white/95 px-3 py-3 text-sm text-stone-700 shadow-sm sm:max-w-[80%]">
+                    <ChatResponseBlock response={turn.response} />
+                  </div>
+                </div>
+              </article>
             ))}
           </div>
         )}
@@ -226,34 +232,79 @@ export default function HomePage() {
 
       <SectionCard title="Today’s Meals" subtitle="Snapshot list with placeholder totals">
         {mealsError && <p className="mb-3 text-xs text-rose-700">{mealsError}</p>}
+        {editMealError && <p className="mb-3 text-xs text-rose-700">{editMealError}</p>}
         {recentMeals.length === 0 ? (
           <div className="rounded-xl border border-stone-200 bg-white/90 px-4 py-6 text-center text-sm text-stone-500">
             No meals logged yet today — try logging one in chat above.
           </div>
         ) : (
           <div className="space-y-2.5 sm:space-y-3">
-            {recentMeals.map((meal) => (
-            <article
-              key={meal.meal_event_id}
-              className="rounded-xl border border-stone-200 bg-white/95 px-3 py-3 shadow-sm sm:px-4"
-            >
-              <div className="sm:flex sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-[0.08em] text-stone-500">{formatMealTime(meal.eaten_at)}</p>
-                  <p className="mt-1 font-medium text-stone-900">{meal.canonical_name}</p>
-                </div>
-                <p className="mt-2 inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800 sm:mt-0">
-                  {toNumber(meal.calories_kcal)} kcal
-                </p>
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-                <MacroPill label="Protein" value={`${toNumber(meal.protein_g)}g`} />
-                <MacroPill label="Carbs" value={`${toNumber(meal.carbohydrate_g)}g`} />
-                <MacroPill label="Fat" value={`${toNumber(meal.fat_g)}g`} />
-                <MacroPill label="Calories" value={`${toNumber(meal.calories_kcal)}`} />
-              </div>
-            </article>
-            ))}
+            {recentMeals.map((meal) => {
+              const timeHint = getMealTimeHint(meal.time_source);
+              return (
+                <article
+                  key={meal.meal_event_id}
+                  className="rounded-xl border border-stone-200 bg-white/95 px-3 py-3 shadow-sm sm:px-4"
+                >
+                  <div className="sm:flex sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-[0.08em] text-stone-500">{formatMealTime(meal.eaten_at)}</p>
+                      {timeHint && <p className="mt-0.5 text-[11px] text-stone-500">{timeHint}</p>}
+                      <p className="mt-1 font-medium text-stone-900">{meal.canonical_name}</p>
+                      {editingMealID === meal.meal_event_id ? (
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <input
+                            type="datetime-local"
+                            value={editingMealValue}
+                            onChange={(event) => setEditingMealValue(event.target.value)}
+                            className="rounded-md border border-stone-300 bg-white px-2 py-1 text-xs text-stone-700"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void onSaveMealTime(meal.meal_event_id)}
+                            disabled={savingMealID === meal.meal_event_id || !editingMealValue}
+                            className="rounded-md bg-stone-900 px-2 py-1 text-xs font-medium text-white"
+                          >
+                            {savingMealID === meal.meal_event_id ? "Saving..." : "Save"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingMealID(null);
+                              setEditingMealValue("");
+                            }}
+                            className="text-xs text-stone-600"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingMealID(meal.meal_event_id);
+                            setEditingMealValue(toDateTimeLocalValue(meal.eaten_at));
+                            setEditMealError(null);
+                          }}
+                          className="mt-1 text-xs font-medium text-stone-600 underline decoration-stone-300 underline-offset-2"
+                        >
+                          Edit time
+                        </button>
+                      )}
+                    </div>
+                    <p className="mt-2 inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800 sm:mt-0">
+                      {toNumber(meal.calories_kcal)} kcal
+                    </p>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                    <MacroPill label="Protein" value={`${toNumber(meal.protein_g)}g`} />
+                    <MacroPill label="Carbs" value={`${toNumber(meal.carbohydrate_g)}g`} />
+                    <MacroPill label="Fat" value={`${toNumber(meal.fat_g)}g`} />
+                    <MacroPill label="Calories" value={`${toNumber(meal.calories_kcal)}`} />
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
       </SectionCard>
@@ -425,9 +476,97 @@ function formatMealTime(timestamp: string) {
     return "--:--";
   }
   return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
     hour: "numeric",
     minute: "2-digit"
   }).format(parsed);
+}
+
+function getMealTimeHint(timeSource?: string | null) {
+  if (!timeSource) {
+    return null;
+  }
+  if (timeSource === "default_now") {
+    return "Logged for now. Edit time if needed.";
+  }
+  return null;
+}
+
+function toDateTimeLocalValue(timestamp: string) {
+  const parsed = new Date(timestamp);
+  if (Number.isNaN(parsed.getTime())) {
+    return "";
+  }
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
+}
+
+function ChatResponseBlock({ response }: { response: ChatResponse }) {
+  if (response.meal_result) {
+    return (
+      <div className="space-y-2">
+        <p className="text-xs font-medium uppercase tracking-[0.08em] text-amber-700">Meal Logged</p>
+        <p className="font-semibold text-stone-900">{response.meal_result.canonical_name}</p>
+        <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+          <MacroPill label="Calories" value={`${toNumber(response.meal_result.calories_kcal ?? null)}`} />
+          <MacroPill label="Protein" value={`${toNumber(response.meal_result.protein_g ?? null)}g`} />
+          <MacroPill label="Carbs" value={`${toNumber(response.meal_result.carbohydrate_g ?? null)}g`} />
+          <MacroPill label="Fat" value={`${toNumber(response.meal_result.fat_g ?? null)}g`} />
+        </div>
+      </div>
+    );
+  }
+
+  if (response.weight_result) {
+    return (
+      <div className="space-y-1">
+        <p className="text-xs font-medium uppercase tracking-[0.08em] text-amber-700">Weight Logged</p>
+        <p className="text-base font-semibold text-stone-900">
+          {response.weight_result.weight} {response.weight_result.unit}
+        </p>
+      </div>
+    );
+  }
+
+  if (response.recommendation_result) {
+    const recommendations = toRecommendationList(response.recommendation_result.text);
+    return (
+      <div className="space-y-2">
+        <p className="text-xs font-medium uppercase tracking-[0.08em] text-amber-700">Recommendations</p>
+        <ul className="space-y-1 text-sm text-stone-700">
+          {recommendations.map((item, idx) => (
+            <li key={`${item}-${idx}`} className="flex gap-2">
+              <span className="mt-1 h-1.5 w-1.5 rounded-full bg-amber-400" />
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+
+  return <p className="text-sm text-stone-700">{response.message_to_user || "Thanks for your message."}</p>;
+}
+
+function toRecommendationList(text: string) {
+  const raw = text
+    .split(/\n|;/)
+    .map((part) => part.replace(/^[-•\s]+/, "").trim())
+    .filter(Boolean);
+  if (raw.length > 1) {
+    return raw;
+  }
+
+  const commaSplit = text
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  if (commaSplit.length > 1) {
+    return commaSplit;
+  }
+
+  return [text.trim()].filter(Boolean);
 }
 
 function formatTrendLabel(date: string) {
