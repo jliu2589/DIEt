@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { getDashboardToday, postChat, type ChatResponse } from "../lib/api";
+import { getDashboardToday, getRecentMeals, postChat, type ChatResponse, type RecentMeal } from "../lib/api";
 
 const DASHBOARD_USER_ID = "demo-user-001";
 
@@ -10,13 +10,6 @@ const goalTargets = [
   { label: "Protein", key: "protein" as const, target: 160, unit: "g" },
   { label: "Carbs", key: "carbs" as const, target: 220, unit: "g" },
   { label: "Fat", key: "fat" as const, target: 75, unit: "g" }
-];
-
-const todaysMeals = [
-  { id: 1, name: "Greek Yogurt + Berries", time: "8:10 AM", calories: 320, protein: 28, carbs: 32, fat: 9 },
-  { id: 2, name: "Salmon Rice Bowl", time: "12:42 PM", calories: 610, protein: 41, carbs: 58, fat: 23 },
-  { id: 3, name: "Almonds + Banana", time: "3:20 PM", calories: 210, protein: 9, carbs: 24, fat: 11 },
-  { id: 4, name: "Chicken & Avocado Wrap", time: "7:05 PM", calories: 470, protein: 36, carbs: 34, fat: 21 }
 ];
 
 type TrendMetric = "calories" | "protein" | "carbs" | "fat" | "weight";
@@ -89,6 +82,8 @@ export default function HomePage() {
   const [chatInput, setChatInput] = useState("");
   const [drafts, setDrafts] = useState<string[]>([]);
   const [chatMessages, setChatMessages] = useState<string[]>([]);
+  const [recentMeals, setRecentMeals] = useState<RecentMeal[]>([]);
+  const [mealsError, setMealsError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
@@ -98,6 +93,7 @@ export default function HomePage() {
 
   async function refreshDashboard() {
     setDashboardError(null);
+    setMealsError(null);
     try {
       const dashboard = await getDashboardToday(DASHBOARD_USER_ID);
       const totals = dashboard.daily_summary.totals;
@@ -107,8 +103,20 @@ export default function HomePage() {
         { label: "Carbs", consumed: Math.round(totals.carbohydrate_g), target: 220, unit: "g" },
         { label: "Fat", consumed: Math.round(totals.fat_g), target: 75, unit: "g" }
       ]);
+      if (Array.isArray(dashboard.recent_meals)) {
+        setRecentMeals(dashboard.recent_meals);
+      } else {
+        const recent = await getRecentMeals(DASHBOARD_USER_ID, 20);
+        setRecentMeals(recent.items);
+      }
     } catch (error) {
       setDashboardError(error instanceof Error ? error.message : "Failed to load dashboard");
+      try {
+        const recent = await getRecentMeals(DASHBOARD_USER_ID, 20);
+        setRecentMeals(recent.items);
+      } catch (mealsFetchError) {
+        setMealsError(mealsFetchError instanceof Error ? mealsFetchError.message : "Failed to load recent meals");
+      }
     } finally {
       setIsDashboardLoading(false);
     }
@@ -228,30 +236,37 @@ export default function HomePage() {
       </section>
 
       <SectionCard title="Today’s Meals" subtitle="Snapshot list with placeholder totals">
-        <div className="space-y-2.5 sm:space-y-3">
-          {todaysMeals.map((meal) => (
+        {mealsError && <p className="mb-3 text-xs text-rose-700">{mealsError}</p>}
+        {recentMeals.length === 0 ? (
+          <div className="rounded-xl border border-stone-200 bg-white/90 px-4 py-6 text-center text-sm text-stone-500">
+            No meals logged yet today — try logging one in chat above.
+          </div>
+        ) : (
+          <div className="space-y-2.5 sm:space-y-3">
+            {recentMeals.map((meal) => (
             <article
-              key={meal.id}
+              key={meal.meal_event_id}
               className="rounded-xl border border-stone-200 bg-white/95 px-3 py-3 shadow-sm sm:px-4"
             >
               <div className="sm:flex sm:items-center sm:justify-between">
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-[0.08em] text-stone-500">{meal.time}</p>
-                  <p className="mt-1 font-medium text-stone-900">{meal.name}</p>
+                  <p className="text-xs font-medium uppercase tracking-[0.08em] text-stone-500">{formatMealTime(meal.eaten_at)}</p>
+                  <p className="mt-1 font-medium text-stone-900">{meal.canonical_name}</p>
                 </div>
                 <p className="mt-2 inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800 sm:mt-0">
-                  {meal.calories} kcal
+                  {toNumber(meal.calories_kcal)} kcal
                 </p>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-                <MacroPill label="Protein" value={`${meal.protein}g`} />
-                <MacroPill label="Carbs" value={`${meal.carbs}g`} />
-                <MacroPill label="Fat" value={`${meal.fat}g`} />
-                <MacroPill label="Calories" value={`${meal.calories}`} />
+                <MacroPill label="Protein" value={`${toNumber(meal.protein_g)}g`} />
+                <MacroPill label="Carbs" value={`${toNumber(meal.carbohydrate_g)}g`} />
+                <MacroPill label="Fat" value={`${toNumber(meal.fat_g)}g`} />
+                <MacroPill label="Calories" value={`${toNumber(meal.calories_kcal)}`} />
               </div>
             </article>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </SectionCard>
 
       <SectionCard title="Trends" subtitle="Select a metric and time range to view trend direction">
@@ -370,6 +385,21 @@ function MacroPill({ label, value }: { label: string; value: string }) {
       <p className="mt-1 text-sm font-semibold text-stone-800">{value}</p>
     </div>
   );
+}
+
+function toNumber(value: number | null | undefined) {
+  return Math.round(value ?? 0);
+}
+
+function formatMealTime(timestamp: string) {
+  const parsed = new Date(timestamp);
+  if (Number.isNaN(parsed.getTime())) {
+    return "--:--";
+  }
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(parsed);
 }
 
 function SectionCard({

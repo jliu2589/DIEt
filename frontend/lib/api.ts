@@ -63,6 +63,7 @@ export type DashboardTodayResponse = {
   user_id: string;
   date: string;
   daily_summary: DailySummaryResponse;
+  recent_meals: RecentMeal[];
 };
 
 export type ChatResponse = {
