@@ -137,6 +137,26 @@ func TestProcessTextMeal_OpenAIFallback(t *testing.T) {
 	}
 }
 
+func TestProcessTextMeal_OpenAIFallbackNormalizesCanonicalName(t *testing.T) {
+	pool := testutil.OpenTestDB(t)
+	t.Cleanup(pool.Close)
+	analyzer := &analyzerStub{resp: openai.MealTextAnalysis{
+		CanonicalName: "big_mac",
+		Nutrition: openai.NutritionV1{
+			CaloriesKcal: float64Ptr(550),
+		},
+	}}
+	svc := newMealServiceForTest(pool, analyzer)
+
+	res, err := svc.ProcessTextMeal(context.Background(), ProcessTextMealInput{UserID: "u1", Source: "web", RawText: "big mac", EatenAt: time.Now().UTC()})
+	if err != nil {
+		t.Fatalf("ProcessTextMeal: %v", err)
+	}
+	if res.CanonicalName != "big mac" {
+		t.Fatalf("expected canonical_name to be normalized, got %q", res.CanonicalName)
+	}
+}
+
 func TestProcessTextMeal_OpenAIFallbackDisabledReturnsClearError(t *testing.T) {
 	pool := testutil.OpenTestDB(t)
 	t.Cleanup(pool.Close)

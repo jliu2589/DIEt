@@ -468,7 +468,7 @@ func (s *Service) processFromCache(ctx context.Context, event *models.MealEvent,
 	analysis := models.MealAnalysis{
 		MealEventID:     event.ID,
 		UserID:          event.UserID,
-		CanonicalName:   cached.CanonicalName,
+		CanonicalName:   normalizeCanonicalName(cached.CanonicalName),
 		ConfidenceScore: cached.ConfidenceScore,
 		AssumptionsJSON: cached.AssumptionsJSON,
 		ItemsJSON:       cached.ItemsJSON,
@@ -502,7 +502,7 @@ func (s *Service) processFromCache(ctx context.Context, event *models.MealEvent,
 		LoggedAt:         event.LoggedAt,
 		EatenAt:          event.EatenAt,
 		TimeSource:       event.TimeSource,
-		CanonicalName:    cached.CanonicalName,
+		CanonicalName:    normalizeCanonicalName(cached.CanonicalName),
 		ConfidenceScore:  cached.ConfidenceScore,
 		Nutrition:        cached.NutritionFields,
 		DailySummaryDate: summaryDate.Format("2006-01-02"),
@@ -546,6 +546,7 @@ func (s *Service) processWithOpenAI(ctx context.Context, event *models.MealEvent
 			TimeSource:    event.TimeSource,
 		}, nil
 	}
+	openAIResult.CanonicalName = normalizeCanonicalName(openAIResult.CanonicalName)
 
 	assumptionsJSON, err := json.Marshal(openAIResult.Assumptions)
 	if err != nil {
@@ -698,7 +699,7 @@ func (s *Service) processFromReusableDatabase(ctx context.Context, event *models
 	analysis := models.MealAnalysis{
 		MealEventID:     event.ID,
 		UserID:          event.UserID,
-		CanonicalName:   reusableMeal.CanonicalName,
+		CanonicalName:   normalizeCanonicalName(reusableMeal.CanonicalName),
 		ConfidenceScore: reusableMeal.ConfidenceScore,
 		ItemsJSON:       itemsJSON,
 		NutritionFields: total,
@@ -710,7 +711,7 @@ func (s *Service) processFromReusableDatabase(ctx context.Context, event *models
 
 	if _, err := s.mealMemoryRepo.Upsert(ctx, models.MealMemory{
 		FingerprintHash: fingerprint,
-		CanonicalName:   reusableMeal.CanonicalName,
+		CanonicalName:   normalizeCanonicalName(reusableMeal.CanonicalName),
 		ConfidenceScore: reusableMeal.ConfidenceScore,
 		ItemsJSON:       itemsJSON,
 		NutritionFields: total,
@@ -744,7 +745,7 @@ func (s *Service) processFromReusableDatabase(ctx context.Context, event *models
 		LoggedAt:          event.LoggedAt,
 		EatenAt:           event.EatenAt,
 		TimeSource:        event.TimeSource,
-		CanonicalName:     reusableMeal.CanonicalName,
+		CanonicalName:     normalizeCanonicalName(reusableMeal.CanonicalName),
 		ConfidenceScore:   reusableMeal.ConfidenceScore,
 		Items:             analysisItems,
 		Nutrition:         total,
@@ -1003,4 +1004,10 @@ func addPtr(a, b *float64) *float64 {
 func dateOnly(t time.Time) time.Time {
 	ut := t.UTC()
 	return time.Date(ut.Year(), ut.Month(), ut.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+func normalizeCanonicalName(name string) string {
+	name = strings.ReplaceAll(name, "_", " ")
+	name = strings.TrimSpace(name)
+	return multiSpaceRegexp.ReplaceAllString(name, " ")
 }

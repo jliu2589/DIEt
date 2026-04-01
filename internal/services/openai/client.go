@@ -209,6 +209,7 @@ If the text is nonsense or not describing food intake, set "is_meal": false and 
 When "is_meal" is false, set "canonical_name" to "not_a_meal".
 If unsure, use null.
 Normalize canonical_name to a common standardized meal name.
+Use natural words with spaces in canonical_name (e.g., "big mac", not "big_mac").
 Include assumptions for inferred portions or ingredients.
 Estimate common meals reasonably when details are incomplete.`
 }
