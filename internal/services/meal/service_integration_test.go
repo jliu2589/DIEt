@@ -13,10 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type classifierStub struct{ intent string }
-
-func (s classifierStub) Classify(string) string { return s.intent }
-
 type analyzerStub struct {
 	calls int
 	resp  openai.MealTextAnalysis
@@ -29,7 +25,7 @@ func (s *analyzerStub) AnalyzeMealText(context.Context, string) (openai.MealText
 
 func float64Ptr(v float64) *float64 { return &v }
 
-func newMealServiceForTest(pool *pgxpool.Pool, analyzer Analyzer, intent string) *Service {
+func newMealServiceForTest(pool *pgxpool.Pool, analyzer Analyzer) *Service {
 	repos := repositories.NewWithDB(pool)
 	return NewService(
 		repos.MealEvents,
@@ -41,30 +37,7 @@ func newMealServiceForTest(pool *pgxpool.Pool, analyzer Analyzer, intent string)
 		repos.CanonicalFoods,
 		nil,
 		analyzer,
-		classifierStub{intent: intent},
 	)
-}
-
-func TestProcessTextMeal_GeneralChatDoesNotLogMeal(t *testing.T) {
-	pool := testutil.OpenTestDB(t)
-	t.Cleanup(pool.Close)
-	svc := newMealServiceForTest(pool, &analyzerStub{}, "general_chat")
-
-	res, err := svc.ProcessTextMeal(context.Background(), ProcessTextMealInput{UserID: "u1", Source: "web", RawText: "hello"})
-	if err != nil {
-		t.Fatalf("ProcessTextMeal: %v", err)
-	}
-	if res.Logged {
-		t.Fatalf("expected logged=false")
-	}
-
-	var events int
-	if err := pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM meal_events`).Scan(&events); err != nil {
-		t.Fatalf("count meal_events: %v", err)
-	}
-	if events != 0 {
-		t.Fatalf("expected 0 meal_events, got %d", events)
-	}
 }
 
 func TestProcessTextMeal_CacheHit(t *testing.T) {
@@ -72,7 +45,7 @@ func TestProcessTextMeal_CacheHit(t *testing.T) {
 	t.Cleanup(pool.Close)
 	repos := repositories.New(pool)
 	analyzer := &analyzerStub{}
-	svc := newMealServiceForTest(pool, analyzer, "meal_log")
+	svc := newMealServiceForTest(pool, analyzer)
 
 	raw := "salmon rice"
 	itemsJSON, _ := json.Marshal([]models.MealItem{{Name: "salmon"}})
@@ -103,7 +76,7 @@ func TestProcessTextMeal_ReusableDBHit(t *testing.T) {
 	t.Cleanup(pool.Close)
 	repos := repositories.New(pool)
 	analyzer := &analyzerStub{}
-	svc := newMealServiceForTest(pool, analyzer, "meal_log")
+	svc := newMealServiceForTest(pool, analyzer)
 
 	raw := "bowl salmon"
 	fingerprint := FingerprintFromText(raw)
@@ -150,7 +123,7 @@ func TestProcessTextMeal_OpenAIFallback(t *testing.T) {
 			FatG:          float64Ptr(6),
 		},
 	}}
-	svc := newMealServiceForTest(pool, analyzer, "meal_log")
+	svc := newMealServiceForTest(pool, analyzer)
 
 	res, err := svc.ProcessTextMeal(context.Background(), ProcessTextMealInput{UserID: "u1", Source: "web", RawText: "oatmeal", EatenAt: time.Now().UTC()})
 	if err != nil {
@@ -167,7 +140,7 @@ func TestProcessTextMeal_OpenAIFallback(t *testing.T) {
 func TestProcessTextMeal_OpenAIFallbackDisabledReturnsClearError(t *testing.T) {
 	pool := testutil.OpenTestDB(t)
 	t.Cleanup(pool.Close)
-	svc := newMealServiceForTest(pool, nil, "meal_log")
+	svc := newMealServiceForTest(pool, nil)
 
 	_, err := svc.ProcessTextMeal(context.Background(), ProcessTextMealInput{UserID: "u1", Source: "web", RawText: "needs analysis", EatenAt: time.Now().UTC()})
 	if err == nil {
@@ -175,6 +148,29 @@ func TestProcessTextMeal_OpenAIFallbackDisabledReturnsClearError(t *testing.T) {
 	}
 	if err != ErrOpenAIFallbackDisabled {
 		t.Fatalf("expected ErrOpenAIFallbackDisabled, got %v", err)
+	}
+}
+
+func TestProcessTextMeal_OpenAIRejectsNonsense(t *testing.T) {
+	pool := testutil.OpenTestDB(t)
+	t.Cleanup(pool.Close)
+	isMeal := false
+	analyzer := &analyzerStub{resp: openai.MealTextAnalysis{
+		IsMeal:          &isMeal,
+		CanonicalName:   "not_a_meal",
+		RejectionReason: "Input does not describe a meal.",
+	}}
+	svc := newMealServiceForTest(pool, analyzer)
+
+	res, err := svc.ProcessTextMeal(context.Background(), ProcessTextMealInput{UserID: "u1", Source: "web", RawText: "asdasd ???", EatenAt: time.Now().UTC()})
+	if err != nil {
+		t.Fatalf("ProcessTextMeal: %v", err)
+	}
+	if res.Logged {
+		t.Fatalf("expected logged=false")
+	}
+	if res.Message != "Input does not describe a meal." {
+		t.Fatalf("unexpected rejection message: %s", res.Message)
 	}
 }
 
@@ -188,7 +184,7 @@ func TestEditMealTime_ReconcilesOldAndNewSummaryDates(t *testing.T) {
 			ProteinG:     float64Ptr(30),
 		},
 	}}
-	svc := newMealServiceForTest(pool, analyzer, "meal_log")
+	svc := newMealServiceForTest(pool, analyzer)
 	repos := repositories.New(pool)
 
 	oldDate := time.Date(2026, 3, 29, 12, 0, 0, 0, time.UTC)
