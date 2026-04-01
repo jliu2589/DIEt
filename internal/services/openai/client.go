@@ -48,6 +48,8 @@ type MealItem struct {
 // MealTextAnalysis is the strongly-typed OpenAI response shape for meal analysis.
 type MealTextAnalysis struct {
 	CanonicalName   string      `json:"canonical_name"`
+	IsMeal          *bool       `json:"is_meal,omitempty"`
+	RejectionReason string      `json:"rejection_reason,omitempty"`
 	ConfidenceScore *float64    `json:"confidence_score"`
 	Assumptions     []string    `json:"assumptions"`
 	Items           []MealItem  `json:"items"`
@@ -147,7 +149,11 @@ func (c *Client) AnalyzeMealText(ctx context.Context, rawText string) (MealTextA
 }
 
 func validateAnalysis(a MealTextAnalysis) error {
-	if strings.TrimSpace(a.CanonicalName) == "" {
+	isMeal := true
+	if a.IsMeal != nil {
+		isMeal = *a.IsMeal
+	}
+	if isMeal && strings.TrimSpace(a.CanonicalName) == "" {
 		return fmt.Errorf("analysis validation: canonical_name is required")
 	}
 
@@ -162,9 +168,11 @@ func systemPrompt() string {
 	return `You are a nutrition analysis assistant.
 Return JSON only and do not include markdown, comments, or prose.
 Output shape must be:
-{
-  "canonical_name": string,
-  "confidence_score": number|null,
+	{
+	  "is_meal": boolean,
+	  "rejection_reason": string,
+	  "canonical_name": string,
+	  "confidence_score": number|null,
   "assumptions": string[],
   "items": [
     {
@@ -197,6 +205,8 @@ Output shape must be:
     "vitamin_c_mg": number|null
   }
 }
+If the text is nonsense or not describing food intake, set "is_meal": false and explain why in "rejection_reason".
+When "is_meal" is false, set "canonical_name" to "not_a_meal".
 If unsure, use null.
 Normalize canonical_name to a common standardized meal name.
 Include assumptions for inferred portions or ingredients.
