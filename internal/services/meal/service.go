@@ -12,16 +12,11 @@ import (
 	"diet/internal/models"
 	"diet/internal/repositories"
 	canonicalfoodssvc "diet/internal/services/canonical_foods"
-	inputclassifier "diet/internal/services/input_classifier"
 	openaisvc "diet/internal/services/openai"
 )
 
 type Analyzer interface {
 	AnalyzeMealText(ctx context.Context, rawText string) (openaisvc.MealTextAnalysis, error)
-}
-
-type InputClassifier interface {
-	Classify(rawText string) string
 }
 
 type Service struct {
@@ -34,7 +29,6 @@ type Service struct {
 	canonicalFoodsRepo *repositories.CanonicalFoodsRepository
 	txManager          *repositories.TxManager
 	mealTextAnalyzer   Analyzer
-	classifier         InputClassifier
 }
 
 const (
@@ -129,7 +123,6 @@ func NewService(
 	canonicalFoodsRepo *repositories.CanonicalFoodsRepository,
 	txManager *repositories.TxManager,
 	mealTextAnalyzer Analyzer,
-	classifier InputClassifier,
 ) *Service {
 	return &Service{
 		mealEventsRepo:     mealEventsRepo,
@@ -141,7 +134,6 @@ func NewService(
 		canonicalFoodsRepo: canonicalFoodsRepo,
 		txManager:          txManager,
 		mealTextAnalyzer:   mealTextAnalyzer,
-		classifier:         classifier,
 	}
 }
 
@@ -153,29 +145,6 @@ func (s *Service) ProcessTextMeal(ctx context.Context, input ProcessTextMealInpu
 	if strings.TrimSpace(input.RawText) == "" {
 		return nil, fmt.Errorf("raw_text is required")
 	}
-	intent := inputclassifier.IntentMealLog
-	classifyStart := time.Now()
-	if s.classifier != nil {
-		intent = s.classifier.Classify(input.RawText)
-	}
-	slog.Info("meal.process.classified",
-		"user_id", input.UserID,
-		"intent", intent,
-		"classify_latency_ms", time.Since(classifyStart).Milliseconds(),
-	)
-	if intent != inputclassifier.IntentMealLog {
-		slog.Info("meal.process.skipped_non_meal",
-			"user_id", input.UserID,
-			"intent", intent,
-			"total_latency_ms", time.Since(started).Milliseconds(),
-		)
-		return &ProcessTextMealResult{
-			Intent:  intent,
-			Logged:  false,
-			Message: nonMealIntentMessage(intent),
-		}, nil
-	}
-
 	eatenAt := input.EatenAt
 	timeSource := "explicit"
 	if eatenAt.IsZero() {
@@ -499,7 +468,7 @@ func (s *Service) processFromCache(ctx context.Context, event *models.MealEvent,
 	analysis := models.MealAnalysis{
 		MealEventID:     event.ID,
 		UserID:          event.UserID,
-		CanonicalName:   cached.CanonicalName,
+		CanonicalName:   normalizeCanonicalName(cached.CanonicalName),
 		ConfidenceScore: cached.ConfidenceScore,
 		AssumptionsJSON: cached.AssumptionsJSON,
 		ItemsJSON:       cached.ItemsJSON,
@@ -524,7 +493,7 @@ func (s *Service) processFromCache(ctx context.Context, event *models.MealEvent,
 	slog.Info("meal.process.cache.persisted", "user_id", event.UserID, "meal_event_id", event.ID, "summary_date", summaryDate.Format("2006-01-02"))
 
 	result := &ProcessTextMealResult{
-		Intent:           inputclassifier.IntentMealLog,
+		Intent:           "meal_log",
 		Logged:           true,
 		Message:          "Logged your meal.",
 		MealEventID:      event.ID,
@@ -533,7 +502,7 @@ func (s *Service) processFromCache(ctx context.Context, event *models.MealEvent,
 		LoggedAt:         event.LoggedAt,
 		EatenAt:          event.EatenAt,
 		TimeSource:       event.TimeSource,
-		CanonicalName:    cached.CanonicalName,
+		CanonicalName:    normalizeCanonicalName(cached.CanonicalName),
 		ConfidenceScore:  cached.ConfidenceScore,
 		Nutrition:        cached.NutritionFields,
 		DailySummaryDate: summaryDate.Format("2006-01-02"),
@@ -557,6 +526,27 @@ func (s *Service) processWithOpenAI(ctx context.Context, event *models.MealEvent
 		slog.Error("meal.process.openai.analyze_failed", "user_id", event.UserID, "meal_event_id", event.ID, "error", err)
 		return nil, fmt.Errorf("analyze meal text: %w", err)
 	}
+	if openAIResult.IsMeal != nil && !*openAIResult.IsMeal {
+		if err := s.mealEventsRepo.UpdateProcessingStatus(ctx, event.ID, "rejected"); err != nil {
+			return nil, fmt.Errorf("mark meal_event rejected: %w", err)
+		}
+		message := "I couldn’t log that as a meal."
+		if strings.TrimSpace(openAIResult.RejectionReason) != "" {
+			message = openAIResult.RejectionReason
+		}
+		return &ProcessTextMealResult{
+			Intent:        "unknown",
+			Logged:        false,
+			Message:       message,
+			MealEventID:   event.ID,
+			Source:        event.Source,
+			ProcessedFrom: "openai",
+			LoggedAt:      event.LoggedAt,
+			EatenAt:       event.EatenAt,
+			TimeSource:    event.TimeSource,
+		}, nil
+	}
+	openAIResult.CanonicalName = normalizeCanonicalName(openAIResult.CanonicalName)
 
 	assumptionsJSON, err := json.Marshal(openAIResult.Assumptions)
 	if err != nil {
@@ -622,7 +612,7 @@ func (s *Service) processWithOpenAI(ctx context.Context, event *models.MealEvent
 	slog.Info("meal.process.openai.persisted", "user_id", event.UserID, "meal_event_id", event.ID, "openai_latency_ms", time.Since(openAIStart).Milliseconds(), "summary_date", summaryDate.Format("2006-01-02"))
 
 	return &ProcessTextMealResult{
-		Intent:           inputclassifier.IntentMealLog,
+		Intent:           "meal_log",
 		Logged:           true,
 		Message:          "Logged your meal.",
 		MealEventID:      event.ID,
@@ -709,7 +699,7 @@ func (s *Service) processFromReusableDatabase(ctx context.Context, event *models
 	analysis := models.MealAnalysis{
 		MealEventID:     event.ID,
 		UserID:          event.UserID,
-		CanonicalName:   reusableMeal.CanonicalName,
+		CanonicalName:   normalizeCanonicalName(reusableMeal.CanonicalName),
 		ConfidenceScore: reusableMeal.ConfidenceScore,
 		ItemsJSON:       itemsJSON,
 		NutritionFields: total,
@@ -721,7 +711,7 @@ func (s *Service) processFromReusableDatabase(ctx context.Context, event *models
 
 	if _, err := s.mealMemoryRepo.Upsert(ctx, models.MealMemory{
 		FingerprintHash: fingerprint,
-		CanonicalName:   reusableMeal.CanonicalName,
+		CanonicalName:   normalizeCanonicalName(reusableMeal.CanonicalName),
 		ConfidenceScore: reusableMeal.ConfidenceScore,
 		ItemsJSON:       itemsJSON,
 		NutritionFields: total,
@@ -746,7 +736,7 @@ func (s *Service) processFromReusableDatabase(ctx context.Context, event *models
 	)
 
 	return &ProcessTextMealResult{
-		Intent:            inputclassifier.IntentMealLog,
+		Intent:            "meal_log",
 		Logged:            true,
 		Message:           "Logged your meal.",
 		MealEventID:       event.ID,
@@ -755,7 +745,7 @@ func (s *Service) processFromReusableDatabase(ctx context.Context, event *models
 		LoggedAt:          event.LoggedAt,
 		EatenAt:           event.EatenAt,
 		TimeSource:        event.TimeSource,
-		CanonicalName:     reusableMeal.CanonicalName,
+		CanonicalName:     normalizeCanonicalName(reusableMeal.CanonicalName),
 		ConfidenceScore:   reusableMeal.ConfidenceScore,
 		Items:             analysisItems,
 		Nutrition:         total,
@@ -907,20 +897,6 @@ func (s *Service) withRepos(repos repositories.Repositories) *Service {
 		canonicalFoodsRepo: repos.CanonicalFoods,
 		txManager:          nil,
 		mealTextAnalyzer:   s.mealTextAnalyzer,
-		classifier:         s.classifier,
-	}
-}
-
-func nonMealIntentMessage(intent string) string {
-	switch intent {
-	case inputclassifier.IntentWeightLog:
-		return "I detected a weight log, so I didn’t save this as a meal."
-	case inputclassifier.IntentRecommendationRequest:
-		return "I detected a recommendation request, so I didn’t save this as a meal."
-	case inputclassifier.IntentGeneralChat:
-		return "I detected general chat, so I didn’t save this as a meal."
-	default:
-		return "I couldn’t confidently detect a meal log, so nothing was saved."
 	}
 }
 
@@ -1028,4 +1004,10 @@ func addPtr(a, b *float64) *float64 {
 func dateOnly(t time.Time) time.Time {
 	ut := t.UTC()
 	return time.Date(ut.Year(), ut.Month(), ut.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+func normalizeCanonicalName(name string) string {
+	name = strings.ReplaceAll(name, "_", " ")
+	name = strings.TrimSpace(name)
+	return multiSpaceRegexp.ReplaceAllString(name, " ")
 }
