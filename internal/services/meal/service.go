@@ -12,16 +12,11 @@ import (
 	"diet/internal/models"
 	"diet/internal/repositories"
 	canonicalfoodssvc "diet/internal/services/canonical_foods"
-	inputclassifier "diet/internal/services/input_classifier"
 	openaisvc "diet/internal/services/openai"
 )
 
 type Analyzer interface {
 	AnalyzeMealText(ctx context.Context, rawText string) (openaisvc.MealTextAnalysis, error)
-}
-
-type InputClassifier interface {
-	Classify(rawText string) string
 }
 
 type Service struct {
@@ -34,7 +29,6 @@ type Service struct {
 	canonicalFoodsRepo *repositories.CanonicalFoodsRepository
 	txManager          *repositories.TxManager
 	mealTextAnalyzer   Analyzer
-	classifier         InputClassifier
 }
 
 const (
@@ -129,7 +123,6 @@ func NewService(
 	canonicalFoodsRepo *repositories.CanonicalFoodsRepository,
 	txManager *repositories.TxManager,
 	mealTextAnalyzer Analyzer,
-	classifier InputClassifier,
 ) *Service {
 	return &Service{
 		mealEventsRepo:     mealEventsRepo,
@@ -141,7 +134,6 @@ func NewService(
 		canonicalFoodsRepo: canonicalFoodsRepo,
 		txManager:          txManager,
 		mealTextAnalyzer:   mealTextAnalyzer,
-		classifier:         classifier,
 	}
 }
 
@@ -153,29 +145,6 @@ func (s *Service) ProcessTextMeal(ctx context.Context, input ProcessTextMealInpu
 	if strings.TrimSpace(input.RawText) == "" {
 		return nil, fmt.Errorf("raw_text is required")
 	}
-	intent := inputclassifier.IntentMealLog
-	classifyStart := time.Now()
-	if s.classifier != nil {
-		intent = s.classifier.Classify(input.RawText)
-	}
-	slog.Info("meal.process.classified",
-		"user_id", input.UserID,
-		"intent", intent,
-		"classify_latency_ms", time.Since(classifyStart).Milliseconds(),
-	)
-	if intent != inputclassifier.IntentMealLog {
-		slog.Info("meal.process.skipped_non_meal",
-			"user_id", input.UserID,
-			"intent", intent,
-			"total_latency_ms", time.Since(started).Milliseconds(),
-		)
-		return &ProcessTextMealResult{
-			Intent:  intent,
-			Logged:  false,
-			Message: nonMealIntentMessage(intent),
-		}, nil
-	}
-
 	eatenAt := input.EatenAt
 	timeSource := "explicit"
 	if eatenAt.IsZero() {
@@ -475,6 +444,13 @@ func (s *Service) DeleteMeal(ctx context.Context, mealEventID int64, userID stri
 	if userID == "" {
 		return fmt.Errorf("user_id is required")
 	}
+	before, err := s.GetMealByID(ctx, mealEventID, userID)
+	if err != nil {
+		return fmt.Errorf("get meal before delete: %w", err)
+	}
+	if before == nil {
+		return nil
+	}
 	deleted, err := s.mealEventsRepo.DeleteByIDAndUserID(ctx, mealEventID, userID)
 	if err != nil {
 		return fmt.Errorf("delete meal: %w", err)
@@ -482,8 +458,30 @@ func (s *Service) DeleteMeal(ctx context.Context, mealEventID int64, userID stri
 	if deleted == nil {
 		return nil
 	}
-	if err := s.dailySummaryRepo.ReconcileForUserDate(ctx, userID, deleted.EatenAt); err != nil {
-		return fmt.Errorf("reconcile summary after delete: %w", err)
+
+	summaryDate := dateOnly(before.EatenAt)
+	existingSummary, err := s.dailySummaryRepo.GetByUserIDAndDate(ctx, userID, summaryDate)
+	if err != nil {
+		return fmt.Errorf("get summary before delete adjustment: %w", err)
+	}
+	if existingSummary == nil {
+		return nil
+	}
+
+	adjusted := subtractNutrition(existingSummary.NutritionFields, before.Nutrition)
+	if !hasAnyNutrition(adjusted) {
+		if err := s.dailySummaryRepo.ReconcileForUserDate(ctx, userID, summaryDate); err != nil {
+			return fmt.Errorf("reconcile summary after delete: %w", err)
+		}
+		return nil
+	}
+
+	if _, err := s.dailySummaryRepo.UpsertTotals(ctx, models.DailyNutritionSummary{
+		UserID:          userID,
+		SummaryDate:     summaryDate,
+		NutritionFields: adjusted,
+	}); err != nil {
+		return fmt.Errorf("update summary after delete: %w", err)
 	}
 	return nil
 }
@@ -499,7 +497,7 @@ func (s *Service) processFromCache(ctx context.Context, event *models.MealEvent,
 	analysis := models.MealAnalysis{
 		MealEventID:     event.ID,
 		UserID:          event.UserID,
-		CanonicalName:   cached.CanonicalName,
+		CanonicalName:   normalizeCanonicalName(cached.CanonicalName),
 		ConfidenceScore: cached.ConfidenceScore,
 		AssumptionsJSON: cached.AssumptionsJSON,
 		ItemsJSON:       cached.ItemsJSON,
@@ -524,7 +522,7 @@ func (s *Service) processFromCache(ctx context.Context, event *models.MealEvent,
 	slog.Info("meal.process.cache.persisted", "user_id", event.UserID, "meal_event_id", event.ID, "summary_date", summaryDate.Format("2006-01-02"))
 
 	result := &ProcessTextMealResult{
-		Intent:           inputclassifier.IntentMealLog,
+		Intent:           "meal_log",
 		Logged:           true,
 		Message:          "Logged your meal.",
 		MealEventID:      event.ID,
@@ -533,7 +531,7 @@ func (s *Service) processFromCache(ctx context.Context, event *models.MealEvent,
 		LoggedAt:         event.LoggedAt,
 		EatenAt:          event.EatenAt,
 		TimeSource:       event.TimeSource,
-		CanonicalName:    cached.CanonicalName,
+		CanonicalName:    normalizeCanonicalName(cached.CanonicalName),
 		ConfidenceScore:  cached.ConfidenceScore,
 		Nutrition:        cached.NutritionFields,
 		DailySummaryDate: summaryDate.Format("2006-01-02"),
@@ -557,6 +555,27 @@ func (s *Service) processWithOpenAI(ctx context.Context, event *models.MealEvent
 		slog.Error("meal.process.openai.analyze_failed", "user_id", event.UserID, "meal_event_id", event.ID, "error", err)
 		return nil, fmt.Errorf("analyze meal text: %w", err)
 	}
+	if openAIResult.IsMeal != nil && !*openAIResult.IsMeal {
+		if err := s.mealEventsRepo.UpdateProcessingStatus(ctx, event.ID, "rejected"); err != nil {
+			return nil, fmt.Errorf("mark meal_event rejected: %w", err)
+		}
+		message := "I couldn’t log that as a meal."
+		if strings.TrimSpace(openAIResult.RejectionReason) != "" {
+			message = openAIResult.RejectionReason
+		}
+		return &ProcessTextMealResult{
+			Intent:        "unknown",
+			Logged:        false,
+			Message:       message,
+			MealEventID:   event.ID,
+			Source:        event.Source,
+			ProcessedFrom: "openai",
+			LoggedAt:      event.LoggedAt,
+			EatenAt:       event.EatenAt,
+			TimeSource:    event.TimeSource,
+		}, nil
+	}
+	openAIResult.CanonicalName = normalizeCanonicalName(openAIResult.CanonicalName)
 
 	assumptionsJSON, err := json.Marshal(openAIResult.Assumptions)
 	if err != nil {
@@ -622,7 +641,7 @@ func (s *Service) processWithOpenAI(ctx context.Context, event *models.MealEvent
 	slog.Info("meal.process.openai.persisted", "user_id", event.UserID, "meal_event_id", event.ID, "openai_latency_ms", time.Since(openAIStart).Milliseconds(), "summary_date", summaryDate.Format("2006-01-02"))
 
 	return &ProcessTextMealResult{
-		Intent:           inputclassifier.IntentMealLog,
+		Intent:           "meal_log",
 		Logged:           true,
 		Message:          "Logged your meal.",
 		MealEventID:      event.ID,
@@ -709,7 +728,7 @@ func (s *Service) processFromReusableDatabase(ctx context.Context, event *models
 	analysis := models.MealAnalysis{
 		MealEventID:     event.ID,
 		UserID:          event.UserID,
-		CanonicalName:   reusableMeal.CanonicalName,
+		CanonicalName:   normalizeCanonicalName(reusableMeal.CanonicalName),
 		ConfidenceScore: reusableMeal.ConfidenceScore,
 		ItemsJSON:       itemsJSON,
 		NutritionFields: total,
@@ -721,7 +740,7 @@ func (s *Service) processFromReusableDatabase(ctx context.Context, event *models
 
 	if _, err := s.mealMemoryRepo.Upsert(ctx, models.MealMemory{
 		FingerprintHash: fingerprint,
-		CanonicalName:   reusableMeal.CanonicalName,
+		CanonicalName:   normalizeCanonicalName(reusableMeal.CanonicalName),
 		ConfidenceScore: reusableMeal.ConfidenceScore,
 		ItemsJSON:       itemsJSON,
 		NutritionFields: total,
@@ -746,7 +765,7 @@ func (s *Service) processFromReusableDatabase(ctx context.Context, event *models
 	)
 
 	return &ProcessTextMealResult{
-		Intent:            inputclassifier.IntentMealLog,
+		Intent:            "meal_log",
 		Logged:            true,
 		Message:           "Logged your meal.",
 		MealEventID:       event.ID,
@@ -755,7 +774,7 @@ func (s *Service) processFromReusableDatabase(ctx context.Context, event *models
 		LoggedAt:          event.LoggedAt,
 		EatenAt:           event.EatenAt,
 		TimeSource:        event.TimeSource,
-		CanonicalName:     reusableMeal.CanonicalName,
+		CanonicalName:     normalizeCanonicalName(reusableMeal.CanonicalName),
 		ConfidenceScore:   reusableMeal.ConfidenceScore,
 		Items:             analysisItems,
 		Nutrition:         total,
@@ -907,20 +926,6 @@ func (s *Service) withRepos(repos repositories.Repositories) *Service {
 		canonicalFoodsRepo: repos.CanonicalFoods,
 		txManager:          nil,
 		mealTextAnalyzer:   s.mealTextAnalyzer,
-		classifier:         s.classifier,
-	}
-}
-
-func nonMealIntentMessage(intent string) string {
-	switch intent {
-	case inputclassifier.IntentWeightLog:
-		return "I detected a weight log, so I didn’t save this as a meal."
-	case inputclassifier.IntentRecommendationRequest:
-		return "I detected a recommendation request, so I didn’t save this as a meal."
-	case inputclassifier.IntentGeneralChat:
-		return "I detected general chat, so I didn’t save this as a meal."
-	default:
-		return "I couldn’t confidently detect a meal log, so nothing was saved."
 	}
 }
 
@@ -1025,7 +1030,76 @@ func addPtr(a, b *float64) *float64 {
 	return &total
 }
 
+func subPtr(a, b *float64) *float64 {
+	if a == nil && b == nil {
+		return nil
+	}
+	var av, bv float64
+	if a != nil {
+		av = *a
+	}
+	if b != nil {
+		bv = *b
+	}
+	diff := av - bv
+	if diff < 0 {
+		diff = 0
+	}
+	if diff == 0 {
+		return nil
+	}
+	return &diff
+}
+
+func subtractNutrition(base, delta models.NutritionFields) models.NutritionFields {
+	return models.NutritionFields{
+		CaloriesKcal:  subPtr(base.CaloriesKcal, delta.CaloriesKcal),
+		ProteinG:      subPtr(base.ProteinG, delta.ProteinG),
+		CarbohydrateG: subPtr(base.CarbohydrateG, delta.CarbohydrateG),
+		FatG:          subPtr(base.FatG, delta.FatG),
+		FiberG:        subPtr(base.FiberG, delta.FiberG),
+		SugarsG:       subPtr(base.SugarsG, delta.SugarsG),
+		SaturatedFatG: subPtr(base.SaturatedFatG, delta.SaturatedFatG),
+		SodiumMg:      subPtr(base.SodiumMg, delta.SodiumMg),
+		PotassiumMg:   subPtr(base.PotassiumMg, delta.PotassiumMg),
+		CalciumMg:     subPtr(base.CalciumMg, delta.CalciumMg),
+		MagnesiumMg:   subPtr(base.MagnesiumMg, delta.MagnesiumMg),
+		IronMg:        subPtr(base.IronMg, delta.IronMg),
+		ZincMg:        subPtr(base.ZincMg, delta.ZincMg),
+		VitaminDMcg:   subPtr(base.VitaminDMcg, delta.VitaminDMcg),
+		VitaminB12Mcg: subPtr(base.VitaminB12Mcg, delta.VitaminB12Mcg),
+		FolateB9Mcg:   subPtr(base.FolateB9Mcg, delta.FolateB9Mcg),
+		VitaminCMg:    subPtr(base.VitaminCMg, delta.VitaminCMg),
+	}
+}
+
+func hasAnyNutrition(n models.NutritionFields) bool {
+	return n.CaloriesKcal != nil ||
+		n.ProteinG != nil ||
+		n.CarbohydrateG != nil ||
+		n.FatG != nil ||
+		n.FiberG != nil ||
+		n.SugarsG != nil ||
+		n.SaturatedFatG != nil ||
+		n.SodiumMg != nil ||
+		n.PotassiumMg != nil ||
+		n.CalciumMg != nil ||
+		n.MagnesiumMg != nil ||
+		n.IronMg != nil ||
+		n.ZincMg != nil ||
+		n.VitaminDMcg != nil ||
+		n.VitaminB12Mcg != nil ||
+		n.FolateB9Mcg != nil ||
+		n.VitaminCMg != nil
+}
+
 func dateOnly(t time.Time) time.Time {
 	ut := t.UTC()
 	return time.Date(ut.Year(), ut.Month(), ut.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+func normalizeCanonicalName(name string) string {
+	name = strings.ReplaceAll(name, "_", " ")
+	name = strings.TrimSpace(name)
+	return multiSpaceRegexp.ReplaceAllString(name, " ")
 }
