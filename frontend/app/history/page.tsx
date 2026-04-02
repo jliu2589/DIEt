@@ -90,9 +90,9 @@ function formatDayLabel(isoDate: string) {
 
 function MacroTile({ label, value, unit }: { label: string; value: number; unit: string }) {
   return (
-    <div className="rounded-xl border border-stone-200/90 bg-stone-50/85 px-3 py-2">
-      <p className="text-[10px] uppercase tracking-[0.12em] text-stone-500">{label}</p>
-      <p className="mt-1 text-sm font-semibold tracking-tight text-stone-900">
+    <div className="rounded-2xl border border-stone-200/80 bg-white/80 px-3.5 py-2.5 shadow-[0_8px_20px_-18px_rgba(41,37,36,0.45)] backdrop-blur-[1px] sm:px-4">
+      <p className="text-[10px] uppercase tracking-[0.14em] text-stone-500">{label}</p>
+      <p className="mt-1 text-base font-semibold tracking-tight text-stone-900">
         {value}
         <span className="ml-1 text-xs font-medium text-stone-500">{unit}</span>
       </p>
@@ -102,25 +102,25 @@ function MacroTile({ label, value, unit }: { label: string; value: number; unit:
 
 function DayJournalSection({ day }: { day: JournalDay }) {
   return (
-    <section className="rounded-[1.45rem] border border-stone-200/85 bg-gradient-to-b from-white to-stone-50/85 p-4 shadow-[0_10px_24px_-18px_rgba(41,37,36,0.4)] sm:p-5">
-      <header className="mb-3.5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <h2 className="text-lg font-semibold tracking-tight text-stone-900 sm:text-xl">{formatDayLabel(day.isoDate)}</h2>
-        <p className="text-xs text-stone-500">{day.meals.length} meals logged</p>
+    <section className="rounded-[1.6rem] border border-stone-200/80 bg-gradient-to-b from-white via-stone-50/55 to-amber-50/25 p-4 shadow-[0_18px_32px_-28px_rgba(41,37,36,0.45)] sm:p-6">
+      <header className="mb-4 flex flex-col gap-1.5 border-b border-stone-200/70 pb-3.5 sm:mb-5 sm:flex-row sm:items-end sm:justify-between sm:pb-4">
+        <h2 className="text-xl font-semibold tracking-tight text-stone-900 sm:text-[1.38rem]">{formatDayLabel(day.isoDate)}</h2>
+        <p className="text-xs font-medium tracking-[0.04em] text-stone-500">{day.meals.length} meals logged</p>
       </header>
 
-      <div className="mb-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+      <div className="mb-4 grid grid-cols-2 gap-2.5 sm:mb-5 sm:grid-cols-4 sm:gap-3">
         <MacroTile label="Calories" value={day.totals.calories} unit="kcal" />
         <MacroTile label="Protein" value={day.totals.protein} unit="g" />
         <MacroTile label="Carbs" value={day.totals.carbs} unit="g" />
         <MacroTile label="Fat" value={day.totals.fat} unit="g" />
       </div>
 
-      <div className="space-y-2.5">
+      <div className="space-y-2.5 sm:space-y-3">
         {day.meals.length === 0 && (
-          <div className="rounded-xl border border-stone-200/90 bg-stone-50/85 px-4 py-4 text-sm text-stone-600">No meals logged.</div>
+          <div className="rounded-2xl border border-stone-200/80 bg-white/75 px-4 py-5 text-sm text-stone-600">No meals logged.</div>
         )}
         {day.meals.length > 0 && (
-          <div className="hidden rounded-xl border border-stone-200/90 bg-stone-50/75 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.08em] text-stone-500 md:grid md:grid-cols-[120px_1fr_90px_80px_80px_70px]">
+          <div className="hidden rounded-2xl border border-stone-200/80 bg-white/70 px-3.5 py-2.5 text-[11px] font-medium uppercase tracking-[0.1em] text-stone-500 md:grid md:grid-cols-[110px_1fr_90px_80px_80px_70px]">
             <p>Time</p>
             <p>Meal</p>
             <p>Calories</p>
@@ -131,24 +131,24 @@ function DayJournalSection({ day }: { day: JournalDay }) {
         )}
 
         {day.meals.map((meal) => (
-          <article key={meal.id} className="rounded-xl border border-stone-200/90 bg-white/95 px-3.5 py-3 shadow-[0_8px_16px_-14px_rgba(41,37,36,0.45)]">
+          <article key={meal.id} className="rounded-2xl border border-stone-200/80 bg-white/90 px-3.5 py-3.5 shadow-[0_12px_22px_-18px_rgba(41,37,36,0.45)] sm:px-4">
             <div className="md:hidden">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-stone-500">{meal.time}</p>
-                  <p className="mt-1 text-sm font-medium text-stone-900">{meal.name}</p>
+                  <p className="text-[11px] font-medium uppercase tracking-[0.11em] text-stone-500">{meal.time}</p>
+                  <p className="mt-1.5 text-[15px] font-medium leading-snug text-stone-900">{meal.name}</p>
                 </div>
-                <p className="inline-flex rounded-full border border-amber-200/80 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-900">{meal.calories} kcal</p>
+                <p className="inline-flex rounded-full border border-amber-200/80 bg-amber-50/80 px-2.5 py-1 text-xs font-medium text-amber-900">{meal.calories} kcal</p>
               </div>
-              <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-stone-700">
-                <p>Protein: {meal.protein}g</p>
-                <p>Carbs: {meal.carbs}g</p>
-                <p>Fat: {meal.fat}g</p>
+              <div className="mt-3.5 grid grid-cols-3 gap-2 rounded-xl border border-stone-200/70 bg-stone-50/70 px-2.5 py-2 text-xs text-stone-700">
+                <p className="font-medium">P {meal.protein}g</p>
+                <p className="font-medium">C {meal.carbs}g</p>
+                <p className="font-medium">F {meal.fat}g</p>
               </div>
             </div>
 
-            <div className="hidden items-center gap-3 text-sm text-stone-800 md:grid md:grid-cols-[120px_1fr_90px_80px_80px_70px]">
-              <p className="text-xs font-medium uppercase tracking-[0.08em] text-stone-500">{meal.time}</p>
+            <div className="hidden items-center gap-3 text-sm text-stone-800 md:grid md:grid-cols-[110px_1fr_90px_80px_80px_70px]">
+              <p className="text-xs font-medium uppercase tracking-[0.1em] text-stone-500">{meal.time}</p>
               <p className="font-medium text-stone-900">{meal.name}</p>
               <p>{meal.calories} kcal</p>
               <p>{meal.protein}g</p>
@@ -281,27 +281,27 @@ export default function HistoryPage() {
   }, [rangeEndDate]);
 
   return (
-    <main className="mx-auto w-full max-w-5xl space-y-5 px-4 pb-12 pt-4 sm:space-y-6 sm:px-6 lg:px-8">
-      <section className="rounded-[1.75rem] border border-stone-200/85 bg-gradient-to-b from-stone-50 via-amber-50/45 to-rose-50/20 p-5 shadow-[0_10px_28px_-16px_rgba(120,113,108,0.35)] sm:p-7">
-        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-stone-500">History</p>
-        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <main className="mx-auto w-full max-w-5xl space-y-5 px-4 pb-14 pt-4 sm:space-y-6 sm:px-6 sm:pt-6 lg:px-8">
+      <section className="rounded-[1.9rem] border border-stone-200/80 bg-gradient-to-b from-stone-50 via-amber-50/40 to-rose-50/15 p-5 shadow-[0_16px_34px_-22px_rgba(120,113,108,0.38)] sm:p-7">
+        <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-stone-500">History</p>
+        <div className="mt-3.5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-stone-900 sm:text-3xl">7-day nutrition journal</h1>
-            <p className="mt-2 text-xl font-medium tracking-tight text-stone-800 sm:text-2xl">{rangeLabel || "7-day journal"}</p>
-            <p className="mt-1 text-sm leading-relaxed text-stone-600">Daily totals and exact meals, grouped by day.</p>
+            <h1 className="text-2xl font-semibold tracking-tight text-stone-900 sm:text-[2rem]">7-day nutrition journal</h1>
+            <p className="mt-2 text-lg font-medium tracking-tight text-stone-800 sm:text-2xl">{rangeLabel || "7-day journal"}</p>
+            <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-stone-600">Daily totals and exact meals, grouped by day.</p>
           </div>
-          <div className="flex items-center gap-2 self-start sm:self-auto">
+          <div className="flex w-full items-center gap-2.5 self-start sm:w-auto sm:self-auto">
             <button
               type="button"
               onClick={() => shiftWeek(-7)}
-              className="rounded-full border border-stone-300/90 bg-white/90 px-3 py-1.5 text-xs font-medium text-stone-700 transition hover:bg-stone-100"
+              className="flex-1 rounded-full border border-stone-300/90 bg-white/90 px-3.5 py-2 text-xs font-medium text-stone-700 transition hover:bg-stone-100 sm:flex-none"
             >
               ← Previous
             </button>
             <button
               type="button"
               onClick={() => shiftWeek(7)}
-              className="rounded-full border border-stone-300/90 bg-white/90 px-3 py-1.5 text-xs font-medium text-stone-700 transition hover:bg-stone-100"
+              className="flex-1 rounded-full border border-stone-300/90 bg-white/90 px-3.5 py-2 text-xs font-medium text-stone-700 transition hover:bg-stone-100 sm:flex-none"
             >
               Next →
             </button>
@@ -309,14 +309,14 @@ export default function HistoryPage() {
         </div>
       </section>
 
-      {error && <p className="rounded-xl border border-amber-200/80 bg-amber-50/80 px-3.5 py-2.5 text-sm text-amber-900">{error}</p>}
+      {error && <p className="rounded-2xl border border-amber-200/80 bg-amber-50/80 px-4 py-3 text-sm text-amber-900">{error}</p>}
 
       {loading ? (
-        <section className="rounded-[1.45rem] border border-stone-200/85 bg-gradient-to-b from-white to-stone-50/80 p-6 text-center text-sm text-stone-600 shadow-[0_10px_24px_-18px_rgba(41,37,36,0.4)] sm:p-8">
+        <section className="rounded-[1.6rem] border border-stone-200/80 bg-gradient-to-b from-white to-stone-50/80 p-6 text-center text-sm text-stone-600 shadow-[0_12px_26px_-20px_rgba(41,37,36,0.4)] sm:p-8">
           Loading your 7-day journal…
         </section>
       ) : !hasAnyMeals ? (
-        <section className="rounded-[1.45rem] border border-stone-200/85 bg-gradient-to-b from-white to-stone-50/80 p-6 text-center shadow-[0_10px_24px_-18px_rgba(41,37,36,0.4)] sm:p-8">
+        <section className="rounded-[1.6rem] border border-stone-200/80 bg-gradient-to-b from-white to-stone-50/80 p-6 text-center shadow-[0_12px_26px_-20px_rgba(41,37,36,0.4)] sm:p-8">
           <p className="text-sm font-medium text-stone-700">No meals logged in this 7-day window yet.</p>
           <p className="mt-1 text-xs text-stone-500">Try another week, or start logging meals to build your journal.</p>
         </section>
