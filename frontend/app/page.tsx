@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { editMealTime, getDashboardToday, getRecentMeals, getTrends, postChat, type ChatResponse, type RecentMeal, type TrendsPoint } from "../lib/api";
+import { deleteMeal, editMealTime, getDashboardToday, getRecentMeals, getTrends, postChat, type ChatResponse, type RecentMeal, type TrendsPoint } from "../lib/api";
 
 const DASHBOARD_USER_ID = "demo-user-001";
 
@@ -49,6 +49,7 @@ export default function HomePage() {
   const [chatInput, setChatInput] = useState("");
   const [chatTurns, setChatTurns] = useState<Array<{ id: number; userMessage: string; response: ChatResponse }>>([]);
   const [recentMeals, setRecentMeals] = useState<RecentMeal[]>([]);
+  const [dashboardDate, setDashboardDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [mealsError, setMealsError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
@@ -62,6 +63,7 @@ export default function HomePage() {
   const [editingMealID, setEditingMealID] = useState<number | null>(null);
   const [editingMealValue, setEditingMealValue] = useState("");
   const [savingMealID, setSavingMealID] = useState<number | null>(null);
+  const [deletingMealID, setDeletingMealID] = useState<number | null>(null);
   const [editMealError, setEditMealError] = useState<string | null>(null);
 
   async function refreshDashboard() {
@@ -69,6 +71,7 @@ export default function HomePage() {
     setMealsError(null);
     try {
       const dashboard = await getDashboardToday(DASHBOARD_USER_ID);
+      setDashboardDate(dashboard.date);
       const totals = dashboard.daily_summary.totals;
       setGoals([
         { label: "Calories", consumed: Math.round(totals.calories_kcal), target: 2500, unit: "kcal" },
@@ -80,13 +83,15 @@ export default function HomePage() {
         setRecentMeals(dashboard.recent_meals);
       } else {
         const recent = await getRecentMeals(DASHBOARD_USER_ID, 20);
-        setRecentMeals(recent.items);
+        setRecentMeals(recent.items.filter((meal) => isMealOnDate(meal.eaten_at, dashboard.date)));
       }
     } catch (error) {
       setDashboardError(error instanceof Error ? error.message : "Failed to load dashboard");
       try {
         const recent = await getRecentMeals(DASHBOARD_USER_ID, 20);
-        setRecentMeals(recent.items);
+        const todayIso = new Date().toISOString().slice(0, 10);
+        setDashboardDate(todayIso);
+        setRecentMeals(recent.items.filter((meal) => isMealOnDate(meal.eaten_at, todayIso)));
       } catch (mealsFetchError) {
         setMealsError(mealsFetchError instanceof Error ? mealsFetchError.message : "Failed to load recent meals");
       }
@@ -157,6 +162,27 @@ export default function HomePage() {
       setEditMealError(error instanceof Error ? error.message : "Could not update meal time");
     } finally {
       setSavingMealID(null);
+    }
+  }
+
+  async function onDeleteMeal(mealEventID: number) {
+    const confirmed = window.confirm("Remove this meal from your log?");
+    if (!confirmed) {
+      return;
+    }
+    setDeletingMealID(mealEventID);
+    setEditMealError(null);
+    try {
+      await deleteMeal(mealEventID, DASHBOARD_USER_ID);
+      if (editingMealID === mealEventID) {
+        setEditingMealID(null);
+        setEditingMealValue("");
+      }
+      await refreshDashboard();
+    } catch (error) {
+      setEditMealError(error instanceof Error ? error.message : "Could not delete meal");
+    } finally {
+      setDeletingMealID(null);
     }
   }
 
@@ -232,12 +258,12 @@ export default function HomePage() {
         )}
       </section>
 
-      <SectionCard title="Today’s Meals" subtitle="Snapshot list with placeholder totals">
+      <SectionCard title={formatDashboardDate(dashboardDate)} subtitle="Meals logged for this date">
         {mealsError && <p className="mb-3 text-xs text-rose-700">{mealsError}</p>}
         {editMealError && <p className="mb-3 text-xs text-rose-700">{editMealError}</p>}
         {recentMeals.length === 0 ? (
           <div className="rounded-xl border border-stone-200 bg-white/90 px-4 py-6 text-center text-sm text-stone-500">
-            No meals logged yet today — try logging one in chat above.
+            No meals logged for this date — try logging one in chat above.
           </div>
         ) : (
           <div className="space-y-3">
@@ -281,17 +307,27 @@ export default function HomePage() {
                           </button>
                         </div>
                       ) : (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingMealID(meal.meal_event_id);
-                            setEditingMealValue(toDateTimeLocalValue(meal.eaten_at));
-                            setEditMealError(null);
-                          }}
-                          className="mt-1 text-xs font-medium text-stone-600 underline decoration-stone-300 underline-offset-2"
-                        >
-                          Edit time
-                        </button>
+                        <div className="mt-1 flex flex-wrap items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingMealID(meal.meal_event_id);
+                              setEditingMealValue(toDateTimeLocalValue(meal.eaten_at));
+                              setEditMealError(null);
+                            }}
+                            className="text-xs font-medium text-stone-600 underline decoration-stone-300 underline-offset-2"
+                          >
+                            Edit time
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void onDeleteMeal(meal.meal_event_id)}
+                            disabled={deletingMealID === meal.meal_event_id}
+                            className="text-xs font-medium text-rose-700 underline decoration-rose-300 underline-offset-2 disabled:opacity-60"
+                          >
+                            {deletingMealID === meal.meal_event_id ? "Removing..." : "Remove"}
+                          </button>
+                        </div>
                       )}
                     </div>
                     <p className="mt-2 inline-flex rounded-full border border-amber-200/80 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-900 sm:mt-0">
@@ -569,6 +605,27 @@ function toRecommendationList(text: string) {
   }
 
   return [text.trim()].filter(Boolean);
+}
+
+function isMealOnDate(timestamp: string, isoDate: string) {
+  const parsed = new Date(timestamp);
+  if (Number.isNaN(parsed.getTime())) {
+    return false;
+  }
+  return parsed.toISOString().slice(0, 10) === isoDate;
+}
+
+function formatDashboardDate(isoDate: string) {
+  const parsed = new Date(`${isoDate}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) {
+    return "Meals";
+  }
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  }).format(parsed);
 }
 
 function formatTrendLabel(date: string) {
