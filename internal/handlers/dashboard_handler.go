@@ -56,6 +56,10 @@ func (h *DashboardHandler) GetToday(c *gin.Context) {
 	}
 	recentItems := make([]mealResponseItem, 0, len(recent))
 	for _, item := range recent {
+		itemDay := item.EatenAt.UTC()
+		if itemDay.Year() != today.Year() || itemDay.Month() != today.Month() || itemDay.Day() != today.Day() {
+			continue
+		}
 		recentItems = append(recentItems, toMealResponseItemFromRecent(item))
 	}
 
