@@ -39,7 +39,7 @@ function makeSevenDayJournal(rangeEndDate: Date): JournalDay[] {
     date.setHours(0, 0, 0, 0);
     date.setDate(date.getDate() - offset);
 
-    const count = ((date.getDate() + date.getMonth()) % 3) + 2; // 2-4 meals/day
+    const count = (date.getDate() + date.getMonth()) % 5; // 0-4 meals/day in mock data
     const meals = Array.from({ length: count }, (_, idx) => {
       const seed = (date.getDate() + idx + date.getMonth()) % MOCK_MEAL_CATALOG.length;
       const base = MOCK_MEAL_CATALOG[seed];
@@ -118,14 +118,21 @@ function DayJournalSection({ day }: { day: JournalDay }) {
       </div>
 
       <div className="space-y-2.5">
-        <div className="hidden rounded-xl border border-stone-200/90 bg-stone-50/75 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.08em] text-stone-500 md:grid md:grid-cols-[120px_1fr_90px_80px_80px_70px]">
-          <p>Time</p>
-          <p>Meal</p>
-          <p>Calories</p>
-          <p>Protein</p>
-          <p>Carbs</p>
-          <p>Fat</p>
-        </div>
+        {day.meals.length === 0 && (
+          <div className="rounded-xl border border-stone-200/90 bg-stone-50/85 px-4 py-4 text-sm text-stone-600">
+            No meals logged.
+          </div>
+        )}
+        {day.meals.length > 0 && (
+          <div className="hidden rounded-xl border border-stone-200/90 bg-stone-50/75 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.08em] text-stone-500 md:grid md:grid-cols-[120px_1fr_90px_80px_80px_70px]">
+            <p>Time</p>
+            <p>Meal</p>
+            <p>Calories</p>
+            <p>Protein</p>
+            <p>Carbs</p>
+            <p>Fat</p>
+          </div>
+        )}
 
         {day.meals.map((meal) => (
           <article key={meal.id} className="rounded-xl border border-stone-200/90 bg-white/95 px-3.5 py-3 shadow-[0_8px_16px_-14px_rgba(41,37,36,0.45)]">
@@ -170,6 +177,7 @@ export default function HistoryPage() {
 
   const journalDays = useMemo(() => makeSevenDayJournal(rangeEndDate), [rangeEndDate]);
   const rangeLabel = useMemo(() => formatSevenDayRange(journalDays), [journalDays]);
+  const hasAnyMeals = useMemo(() => journalDays.some((day) => day.meals.length > 0), [journalDays]);
 
   function shiftWeek(daysDelta: number) {
     setRangeEndDate((prev) => {
@@ -208,11 +216,18 @@ export default function HistoryPage() {
         </div>
       </section>
 
-      <div className="space-y-4 sm:space-y-5">
-        {journalDays.map((day) => (
-          <DayJournalSection key={day.isoDate} day={day} />
-        ))}
-      </div>
+      {!hasAnyMeals ? (
+        <section className="rounded-[1.45rem] border border-stone-200/85 bg-gradient-to-b from-white to-stone-50/80 p-6 text-center shadow-[0_10px_24px_-18px_rgba(41,37,36,0.4)] sm:p-8">
+          <p className="text-sm font-medium text-stone-700">No meals logged in this 7-day window yet.</p>
+          <p className="mt-1 text-xs text-stone-500">Try another week, or start logging meals to build your journal.</p>
+        </section>
+      ) : (
+        <div className="space-y-4 sm:space-y-5">
+          {journalDays.map((day) => (
+            <DayJournalSection key={day.isoDate} day={day} />
+          ))}
+        </div>
+      )}
     </main>
   );
 }
