@@ -35,6 +35,16 @@ function formatMealTime(value: string) {
   if (Number.isNaN(parsed.getTime())) {
     return "—";
   }
+  const first = new Date(`${days[0].isoDate}T00:00:00`);
+  const last = new Date(`${days[days.length - 1].isoDate}T00:00:00`);
+
+  const start = new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric" }).format(first);
+  const end = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(last);
+  return `${start} – ${end}`;
+}
+
+function formatDayLabel(isoDate: string) {
+  const date = new Date(`${isoDate}T00:00:00`);
   return new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
     minute: "2-digit"
