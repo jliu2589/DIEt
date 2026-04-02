@@ -22,6 +22,7 @@ func NewService() *Service {
 var (
 	weightLogPattern  = regexp.MustCompile(`(?i)\b\d{2,3}(?:\.\d+)?\s*(kg|kgs|kilograms?|lb|lbs|pounds?)\b`)
 	weightHintPattern = regexp.MustCompile(`(?i)\b(weight|weigh|scale)\b`)
+	mealPortionPattern = regexp.MustCompile(`(?i)\b\d+(?:\.\d+)?\s*(g|gram|grams|kg|ml|l|oz|cup|cups|tbsp|tablespoons?|tsp|teaspoons?|scoop|scoops|serving|servings|slice|slices|piece|pieces)\b`)
 )
 
 func (s *Service) Classify(rawText string) string {
@@ -84,12 +85,17 @@ func isGeneralChat(text string) bool {
 func isMealLog(text string) bool {
 	foodHints := []string{
 		"egg", "toast", "chicken", "rice", "salad", "sandwich", "oatmeal", "yogurt", "apple", "banana", "beef", "fish", "avocado", "pasta", "soup",
-		"ate ", "had ", "breakfast", "lunch", "dinner",
+		"milk", "protein", "whey", "creatine", "ate ", "had ", "breakfast", "lunch", "dinner", "snack",
 	}
 	for _, hint := range foodHints {
 		if strings.Contains(text, hint) {
 			return true
 		}
 	}
+
+	if mealPortionPattern.MatchString(text) {
+		return true
+	}
+
 	return false
 }
