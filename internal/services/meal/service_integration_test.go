@@ -244,6 +244,62 @@ func TestEditMealTime_ReconcilesOldAndNewSummaryDates(t *testing.T) {
 	}
 }
 
+func TestDeleteMeal_SubtractsOnlyDeletedMealFromDailySummary(t *testing.T) {
+	pool := testutil.OpenTestDB(t)
+	t.Cleanup(pool.Close)
+
+	analyzer := &analyzerStub{resp: openai.MealTextAnalysis{
+		CanonicalName: "test meal",
+		Nutrition: openai.NutritionV1{
+			CaloriesKcal: float64Ptr(500),
+			ProteinG:     float64Ptr(30),
+		},
+	}}
+	svc := newMealServiceForTest(pool, analyzer)
+	repos := repositories.New(pool)
+
+	day := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
+	first, err := svc.ProcessTextMeal(context.Background(), ProcessTextMealInput{UserID: "u1", Source: "web", RawText: "meal one", EatenAt: day})
+	if err != nil {
+		t.Fatalf("create first meal: %v", err)
+	}
+	second, err := svc.ProcessTextMeal(context.Background(), ProcessTextMealInput{UserID: "u1", Source: "web", RawText: "meal two", EatenAt: day.Add(1 * time.Hour)})
+	if err != nil {
+		t.Fatalf("create second meal: %v", err)
+	}
+
+	beforeSummary, err := repos.DailyNutritionSummary.GetByUserIDAndDate(context.Background(), "u1", day)
+	if err != nil {
+		t.Fatalf("get summary before delete: %v", err)
+	}
+	if beforeSummary == nil || valueOrZero(beforeSummary.CaloriesKcal) != 1000 {
+		t.Fatalf("expected 1000 calories before delete, got %+v", beforeSummary)
+	}
+
+	if err := svc.DeleteMeal(context.Background(), first.MealEventID, "u1"); err != nil {
+		t.Fatalf("delete meal: %v", err)
+	}
+
+	afterSummary, err := repos.DailyNutritionSummary.GetByUserIDAndDate(context.Background(), "u1", day)
+	if err != nil {
+		t.Fatalf("get summary after delete: %v", err)
+	}
+	if afterSummary == nil {
+		t.Fatalf("expected summary to remain after deleting one meal")
+	}
+	if valueOrZero(afterSummary.CaloriesKcal) != 500 {
+		t.Fatalf("expected 500 calories after delete, got %v", valueOrZero(afterSummary.CaloriesKcal))
+	}
+
+	remainingMeal, err := svc.GetMealByID(context.Background(), second.MealEventID, "u1")
+	if err != nil {
+		t.Fatalf("fetch remaining meal: %v", err)
+	}
+	if remainingMeal == nil {
+		t.Fatalf("expected second meal to remain")
+	}
+}
+
 func valueOrZero(v *float64) float64 {
 	if v == nil {
 		return 0

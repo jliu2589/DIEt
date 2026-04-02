@@ -444,6 +444,13 @@ func (s *Service) DeleteMeal(ctx context.Context, mealEventID int64, userID stri
 	if userID == "" {
 		return fmt.Errorf("user_id is required")
 	}
+	before, err := s.GetMealByID(ctx, mealEventID, userID)
+	if err != nil {
+		return fmt.Errorf("get meal before delete: %w", err)
+	}
+	if before == nil {
+		return nil
+	}
 	deleted, err := s.mealEventsRepo.DeleteByIDAndUserID(ctx, mealEventID, userID)
 	if err != nil {
 		return fmt.Errorf("delete meal: %w", err)
@@ -451,8 +458,30 @@ func (s *Service) DeleteMeal(ctx context.Context, mealEventID int64, userID stri
 	if deleted == nil {
 		return nil
 	}
-	if err := s.dailySummaryRepo.ReconcileForUserDate(ctx, userID, deleted.EatenAt); err != nil {
-		return fmt.Errorf("reconcile summary after delete: %w", err)
+
+	summaryDate := dateOnly(before.EatenAt)
+	existingSummary, err := s.dailySummaryRepo.GetByUserIDAndDate(ctx, userID, summaryDate)
+	if err != nil {
+		return fmt.Errorf("get summary before delete adjustment: %w", err)
+	}
+	if existingSummary == nil {
+		return nil
+	}
+
+	adjusted := subtractNutrition(existingSummary.NutritionFields, before.Nutrition)
+	if !hasAnyNutrition(adjusted) {
+		if err := s.dailySummaryRepo.ReconcileForUserDate(ctx, userID, summaryDate); err != nil {
+			return fmt.Errorf("reconcile summary after delete: %w", err)
+		}
+		return nil
+	}
+
+	if _, err := s.dailySummaryRepo.UpsertTotals(ctx, models.DailyNutritionSummary{
+		UserID:          userID,
+		SummaryDate:     summaryDate,
+		NutritionFields: adjusted,
+	}); err != nil {
+		return fmt.Errorf("update summary after delete: %w", err)
 	}
 	return nil
 }
@@ -999,6 +1028,69 @@ func addPtr(a, b *float64) *float64 {
 	}
 	total := av + bv
 	return &total
+}
+
+func subPtr(a, b *float64) *float64 {
+	if a == nil && b == nil {
+		return nil
+	}
+	var av, bv float64
+	if a != nil {
+		av = *a
+	}
+	if b != nil {
+		bv = *b
+	}
+	diff := av - bv
+	if diff < 0 {
+		diff = 0
+	}
+	if diff == 0 {
+		return nil
+	}
+	return &diff
+}
+
+func subtractNutrition(base, delta models.NutritionFields) models.NutritionFields {
+	return models.NutritionFields{
+		CaloriesKcal:  subPtr(base.CaloriesKcal, delta.CaloriesKcal),
+		ProteinG:      subPtr(base.ProteinG, delta.ProteinG),
+		CarbohydrateG: subPtr(base.CarbohydrateG, delta.CarbohydrateG),
+		FatG:          subPtr(base.FatG, delta.FatG),
+		FiberG:        subPtr(base.FiberG, delta.FiberG),
+		SugarsG:       subPtr(base.SugarsG, delta.SugarsG),
+		SaturatedFatG: subPtr(base.SaturatedFatG, delta.SaturatedFatG),
+		SodiumMg:      subPtr(base.SodiumMg, delta.SodiumMg),
+		PotassiumMg:   subPtr(base.PotassiumMg, delta.PotassiumMg),
+		CalciumMg:     subPtr(base.CalciumMg, delta.CalciumMg),
+		MagnesiumMg:   subPtr(base.MagnesiumMg, delta.MagnesiumMg),
+		IronMg:        subPtr(base.IronMg, delta.IronMg),
+		ZincMg:        subPtr(base.ZincMg, delta.ZincMg),
+		VitaminDMcg:   subPtr(base.VitaminDMcg, delta.VitaminDMcg),
+		VitaminB12Mcg: subPtr(base.VitaminB12Mcg, delta.VitaminB12Mcg),
+		FolateB9Mcg:   subPtr(base.FolateB9Mcg, delta.FolateB9Mcg),
+		VitaminCMg:    subPtr(base.VitaminCMg, delta.VitaminCMg),
+	}
+}
+
+func hasAnyNutrition(n models.NutritionFields) bool {
+	return n.CaloriesKcal != nil ||
+		n.ProteinG != nil ||
+		n.CarbohydrateG != nil ||
+		n.FatG != nil ||
+		n.FiberG != nil ||
+		n.SugarsG != nil ||
+		n.SaturatedFatG != nil ||
+		n.SodiumMg != nil ||
+		n.PotassiumMg != nil ||
+		n.CalciumMg != nil ||
+		n.MagnesiumMg != nil ||
+		n.IronMg != nil ||
+		n.ZincMg != nil ||
+		n.VitaminDMcg != nil ||
+		n.VitaminB12Mcg != nil ||
+		n.FolateB9Mcg != nil ||
+		n.VitaminCMg != nil
 }
 
 func dateOnly(t time.Time) time.Time {
