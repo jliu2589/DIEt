@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 type JournalMeal = {
   id: string;
@@ -31,11 +31,11 @@ const MOCK_MEAL_CATALOG: JournalMeal[] = [
   { id: "e", time: "9:10 PM", name: "Dark chocolate + almonds", calories: 220, protein: 6, carbs: 14, fat: 16 }
 ];
 
-function makeSevenDayJournal(now: Date): JournalDay[] {
+function makeSevenDayJournal(rangeEndDate: Date): JournalDay[] {
   const days: JournalDay[] = [];
 
   for (let offset = 6; offset >= 0; offset -= 1) {
-    const date = new Date(now);
+    const date = new Date(rangeEndDate);
     date.setHours(0, 0, 0, 0);
     date.setDate(date.getDate() - offset);
 
@@ -103,16 +103,50 @@ function MacroTile({ label, value, unit }: { label: string; value: number; unit:
 }
 
 export default function HistoryPage() {
-  const journalDays = useMemo(() => makeSevenDayJournal(new Date()), []);
+  const [rangeEndDate, setRangeEndDate] = useState(() => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    return now;
+  });
+
+  const journalDays = useMemo(() => makeSevenDayJournal(rangeEndDate), [rangeEndDate]);
   const rangeLabel = useMemo(() => formatSevenDayRange(journalDays), [journalDays]);
+
+  function shiftWeek(daysDelta: number) {
+    setRangeEndDate((prev) => {
+      const next = new Date(prev);
+      next.setDate(prev.getDate() + daysDelta);
+      return next;
+    });
+  }
 
   return (
     <main className="mx-auto w-full max-w-5xl space-y-5 px-4 pb-12 pt-4 sm:space-y-6 sm:px-6 lg:px-8">
       <section className="rounded-[1.75rem] border border-stone-200/85 bg-gradient-to-b from-stone-50 via-amber-50/45 to-rose-50/20 p-5 shadow-[0_10px_28px_-16px_rgba(120,113,108,0.35)] sm:p-7">
         <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-stone-500">History</p>
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight text-stone-900 sm:text-3xl">7-day nutrition journal</h1>
-        <p className="mt-2 text-base text-stone-700">{rangeLabel}</p>
-        <p className="mt-1 text-sm leading-relaxed text-stone-600">Daily totals and exact meals, grouped by day.</p>
+        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-stone-900 sm:text-3xl">7-day nutrition journal</h1>
+            <p className="mt-2 text-xl font-medium tracking-tight text-stone-800 sm:text-2xl">{rangeLabel}</p>
+            <p className="mt-1 text-sm leading-relaxed text-stone-600">Daily totals and exact meals, grouped by day.</p>
+          </div>
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={() => shiftWeek(-7)}
+              className="rounded-full border border-stone-300/90 bg-white/90 px-3 py-1.5 text-xs font-medium text-stone-700 transition hover:bg-stone-100"
+            >
+              ← Previous
+            </button>
+            <button
+              type="button"
+              onClick={() => shiftWeek(7)}
+              className="rounded-full border border-stone-300/90 bg-white/90 px-3 py-1.5 text-xs font-medium text-stone-700 transition hover:bg-stone-100"
+            >
+              Next →
+            </button>
+          </div>
+        </div>
       </section>
 
       <div className="space-y-4 sm:space-y-5">
