@@ -118,21 +118,41 @@ function DayJournalSection({ day }: { day: JournalDay }) {
       </div>
 
       <div className="space-y-2.5">
+        <div className="hidden rounded-xl border border-stone-200/90 bg-stone-50/75 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.08em] text-stone-500 md:grid md:grid-cols-[120px_1fr_90px_80px_80px_70px]">
+          <p>Time</p>
+          <p>Meal</p>
+          <p>Calories</p>
+          <p>Protein</p>
+          <p>Carbs</p>
+          <p>Fat</p>
+        </div>
+
         {day.meals.map((meal) => (
           <article key={meal.id} className="rounded-xl border border-stone-200/90 bg-white/95 px-3.5 py-3 shadow-[0_8px_16px_-14px_rgba(41,37,36,0.45)]">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-stone-500">{meal.time}</p>
-                <p className="mt-1 text-sm font-medium text-stone-900 sm:text-[15px]">{meal.name}</p>
+            <div className="md:hidden">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-stone-500">{meal.time}</p>
+                  <p className="mt-1 text-sm font-medium text-stone-900">{meal.name}</p>
+                </div>
+                <p className="inline-flex rounded-full border border-amber-200/80 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-900">
+                  {meal.calories} kcal
+                </p>
               </div>
-              <p className="inline-flex rounded-full border border-amber-200/80 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-900">
-                {meal.calories} kcal
-              </p>
+              <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-stone-700">
+                <p>Protein: {meal.protein}g</p>
+                <p>Carbs: {meal.carbs}g</p>
+                <p>Fat: {meal.fat}g</p>
+              </div>
             </div>
-            <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-stone-700">
-              <p>Protein: {meal.protein}g</p>
-              <p>Carbs: {meal.carbs}g</p>
-              <p>Fat: {meal.fat}g</p>
+
+            <div className="hidden items-center gap-3 text-sm text-stone-800 md:grid md:grid-cols-[120px_1fr_90px_80px_80px_70px]">
+              <p className="text-xs font-medium uppercase tracking-[0.08em] text-stone-500">{meal.time}</p>
+              <p className="font-medium text-stone-900">{meal.name}</p>
+              <p>{meal.calories} kcal</p>
+              <p>{meal.protein}g</p>
+              <p>{meal.carbs}g</p>
+              <p>{meal.fat}g</p>
             </div>
           </article>
         ))}
