@@ -37,19 +37,18 @@ func (h *DashboardHandler) GetToday(c *gin.Context) {
 
 	now := time.Now().UTC()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-	if err := h.summaryRepo.ReconcileForUserDate(c.Request.Context(), userID, today); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to recalculate today summary"})
-		return
-	}
-
-	summaryModel, err := h.summaryRepo.GetByUserIDAndDate(c.Request.Context(), userID, today)
+	aggregated, err := h.summaryRepo.AggregateForUserDate(c.Request.Context(), userID, today)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch today summary"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to aggregate today summary"})
 		return
 	}
 	nutrition := models.NutritionFields{}
-	if summaryModel != nil {
-		nutrition = summaryModel.NutritionFields
+	if aggregated != nil {
+		nutrition = aggregated.NutritionFields
+		if err := h.summaryRepo.ReconcileForUserDate(c.Request.Context(), userID, today); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to recalculate today summary"})
+			return
+		}
 	}
 	summary := newDailySummaryResponse(userID, today.Format("2006-01-02"), nutrition)
 
