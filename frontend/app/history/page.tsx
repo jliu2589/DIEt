@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getDailySummary, getRecentMeals, type DailySummaryResponse, type RecentMeal } from "@/lib/api";
+import { getDailySummary, getRecentMeals, type DailySummaryResponse } from "@/lib/api";
 
 type JournalMeal = {
   id: string;
@@ -79,7 +79,7 @@ function formatSevenDayRange(days: JournalDay[]) {
   return `${start} – ${end}`;
 }
 
-function formatDayLabel(isoDate: string) {
+function formatJournalDayLabel(isoDate: string) {
   const date = new Date(`${isoDate}T00:00:00Z`);
   return new Intl.DateTimeFormat("en-US", {
     weekday: "long",
@@ -104,7 +104,7 @@ function DayJournalSection({ day }: { day: JournalDay }) {
   return (
     <section className="rounded-[1.6rem] border border-stone-200/80 bg-gradient-to-b from-white via-stone-50/55 to-amber-50/25 p-4 shadow-[0_18px_32px_-28px_rgba(41,37,36,0.45)] sm:p-6">
       <header className="mb-4 flex flex-col gap-1.5 border-b border-stone-200/70 pb-3.5 sm:mb-5 sm:flex-row sm:items-end sm:justify-between sm:pb-4">
-        <h2 className="text-xl font-semibold tracking-tight text-stone-900 sm:text-[1.38rem]">{formatDayLabel(day.isoDate)}</h2>
+        <h2 className="text-xl font-semibold tracking-tight text-stone-900 sm:text-[1.38rem]">{formatJournalDayLabel(day.isoDate)}</h2>
         <p className="text-xs font-medium tracking-[0.04em] text-stone-500">{day.meals.length} meals logged</p>
       </header>
 
