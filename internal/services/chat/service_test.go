@@ -5,33 +5,25 @@ import (
 	"testing"
 	"time"
 
-	"diet/internal/models"
 	mealservice "diet/internal/services/meal"
-	weightservice "diet/internal/services/weight"
 )
 
-type classifierStub struct{ intent string }
-
-func (s classifierStub) Classify(_ string) string { return s.intent }
-
-type mealStub struct{ calls int }
+type mealStub struct {
+	calls  int
+	result *mealservice.ProcessTextMealResult
+}
 
 func (m *mealStub) ProcessTextMeal(_ context.Context, _ mealservice.ProcessTextMealInput) (*mealservice.ProcessTextMealResult, error) {
 	m.calls++
-	return &mealservice.ProcessTextMealResult{Logged: true}, nil
+	if m.result != nil {
+		return m.result, nil
+	}
+	return &mealservice.ProcessTextMealResult{Logged: true, MealEventID: 1, LoggedAt: time.Now().UTC(), EatenAt: time.Now().UTC(), Source: "chat"}, nil
 }
 
-type weightStub struct{ calls int }
-
-func (w *weightStub) CreateEntry(_ context.Context, _ weightservice.CreateEntryInput) (*models.WeightEntry, error) {
-	w.calls++
-	return &models.WeightEntry{Weight: 70, Unit: "kg", LoggedAt: time.Now().UTC()}, nil
-}
-
-func TestHandleMessage_GeneralChat_DoesNotCallMealOrWeight(t *testing.T) {
+func TestHandleMessage_AlwaysCallsMealService(t *testing.T) {
 	meal := &mealStub{}
-	weight := &weightStub{}
-	svc := NewService(classifierStub{intent: "general_chat"}, meal, weight)
+	svc := NewService(meal)
 
 	resp, err := svc.HandleMessage(context.Background(), Request{UserID: "u1", Message: "hi"})
 	if err != nil {
@@ -40,42 +32,26 @@ func TestHandleMessage_GeneralChat_DoesNotCallMealOrWeight(t *testing.T) {
 	if resp == nil {
 		t.Fatalf("expected response")
 	}
-	if resp.Intent != "general_chat" {
-		t.Fatalf("expected general_chat intent, got %s", resp.Intent)
+	if meal.calls != 1 {
+		t.Fatalf("expected meal service called once, got %d", meal.calls)
 	}
-	if resp.MessageToUser != nonDietHelpMessage {
-		t.Fatalf("unexpected message_to_user: %s", resp.MessageToUser)
-	}
-	if meal.calls != 0 {
-		t.Fatalf("expected meal service not called, got %d", meal.calls)
-	}
-	if weight.calls != 0 {
-		t.Fatalf("expected weight service not called, got %d", weight.calls)
+	if resp.Intent != "meal_log" {
+		t.Fatalf("expected meal_log intent, got %s", resp.Intent)
 	}
 }
 
-func TestHandleMessage_Unknown_DoesNotCallMealOrWeight(t *testing.T) {
-	meal := &mealStub{}
-	weight := &weightStub{}
-	svc := NewService(classifierStub{intent: "unknown"}, meal, weight)
+func TestHandleMessage_NonMealResultReturnsUnknown(t *testing.T) {
+	meal := &mealStub{result: &mealservice.ProcessTextMealResult{Logged: false}}
+	svc := NewService(meal)
 
 	resp, err := svc.HandleMessage(context.Background(), Request{UserID: "u1", Message: "random words"})
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	if resp == nil {
-		t.Fatalf("expected response")
-	}
 	if resp.Intent != "unknown" {
 		t.Fatalf("expected unknown intent, got %s", resp.Intent)
 	}
-	if resp.MessageToUser != nonDietHelpMessage {
-		t.Fatalf("unexpected message_to_user: %s", resp.MessageToUser)
-	}
-	if meal.calls != 0 {
-		t.Fatalf("expected meal service not called, got %d", meal.calls)
-	}
-	if weight.calls != 0 {
-		t.Fatalf("expected weight service not called, got %d", weight.calls)
+	if resp.MessageToUser != "I couldn’t log that as a meal." {
+		t.Fatalf("unexpected message: %s", resp.MessageToUser)
 	}
 }
