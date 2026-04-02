@@ -177,6 +177,17 @@ export async function editMealTime(mealEventId: number, payload: EditMealTimeReq
   return response.json() as Promise<EditMealTimeResponse>;
 }
 
+export async function deleteMeal(mealEventId: number, userId: string): Promise<void> {
+  const params = new URLSearchParams({ user_id: userId });
+  const response = await fetch(buildUrl(`/v1/meals/${mealEventId}?${params.toString()}`), {
+    method: "DELETE"
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to delete meal (${response.status})`);
+  }
+}
+
 export async function getDashboardToday(userId: string): Promise<DashboardTodayResponse> {
   const params = new URLSearchParams({ user_id: userId });
   const response = await fetch(buildUrl(`/v1/dashboard/today?${params.toString()}`), {

@@ -9,16 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"diet/internal/models"
 	chatservice "diet/internal/services/chat"
 	mealservice "diet/internal/services/meal"
-	weightservice "diet/internal/services/weight"
 	"github.com/gin-gonic/gin"
 )
-
-type chatClassifierStub struct{ intent string }
-
-func (s chatClassifierStub) Classify(string) string { return s.intent }
 
 type chatMealStub struct{}
 
@@ -34,15 +28,9 @@ func (chatMealStub) ProcessTextMeal(context.Context, mealservice.ProcessTextMeal
 	}, nil
 }
 
-type chatWeightStub struct{}
-
-func (chatWeightStub) CreateEntry(context.Context, weightservice.CreateEntryInput) (*models.WeightEntry, error) {
-	return &models.WeightEntry{Weight: 70, Unit: "kg", LoggedAt: time.Now().UTC()}, nil
-}
-
 func TestChatHandler_PostChat(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	svc := chatservice.NewService(chatClassifierStub{intent: "meal_log"}, chatMealStub{}, chatWeightStub{})
+	svc := chatservice.NewService(chatMealStub{})
 	h := NewChatHandler(svc, nil)
 	r := gin.New()
 	r.POST("/v1/chat", h.PostChat)
