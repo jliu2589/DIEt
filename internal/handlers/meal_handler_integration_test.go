@@ -17,10 +17,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type mealClassifierStub struct{}
-
-func (mealClassifierStub) Classify(string) string { return "meal_log" }
-
 type mealAnalyzerStub struct{}
 
 func (mealAnalyzerStub) AnalyzeMealText(context.Context, string) (openai.MealTextAnalysis, error) {
@@ -40,7 +36,7 @@ func setupMealHandler(t *testing.T) *MealHandler {
 	pool := testutil.OpenTestDB(t)
 	t.Cleanup(pool.Close)
 	repos := repositories.New(pool)
-	svc := mealservice.NewService(repos.MealEvents, repos.MealAnalysis, repos.MealMemory, repos.DailyNutritionSummary, repos.Meals, repos.MealItems, repos.CanonicalFoods, nil, mealAnalyzerStub{}, mealClassifierStub{})
+	svc := mealservice.NewService(repos.MealEvents, repos.MealAnalysis, repos.MealMemory, repos.DailyNutritionSummary, repos.Meals, repos.MealItems, repos.CanonicalFoods, nil, mealAnalyzerStub{})
 	return NewMealHandler(svc, nil)
 }
 

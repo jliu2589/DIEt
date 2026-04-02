@@ -1,195 +1,161 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { editMealTime, getRecentMeals, type RecentMeal } from "@/lib/api";
+import { useMemo } from "react";
 
-const USER_ID = "demo-user";
+type JournalMeal = {
+  id: string;
+  time: string;
+  name: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+};
 
-function formatPrimaryMealTime(value: string) {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return "—";
+type JournalDay = {
+  isoDate: string;
+  meals: JournalMeal[];
+  totals: {
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+  };
+};
+
+const MOCK_MEAL_CATALOG: JournalMeal[] = [
+  { id: "a", time: "8:10 AM", name: "Greek yogurt, berries, granola", calories: 430, protein: 28, carbs: 47, fat: 14 },
+  { id: "b", time: "12:40 PM", name: "Chicken rice bowl", calories: 620, protein: 42, carbs: 58, fat: 22 },
+  { id: "c", time: "4:20 PM", name: "Protein shake", calories: 280, protein: 32, carbs: 18, fat: 7 },
+  { id: "d", time: "7:35 PM", name: "Salmon, potatoes, salad", calories: 710, protein: 46, carbs: 52, fat: 30 },
+  { id: "e", time: "9:10 PM", name: "Dark chocolate + almonds", calories: 220, protein: 6, carbs: 14, fat: 16 }
+];
+
+function makeSevenDayJournal(now: Date): JournalDay[] {
+  const days: JournalDay[] = [];
+
+  for (let offset = 6; offset >= 0; offset -= 1) {
+    const date = new Date(now);
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() - offset);
+
+    const count = ((date.getDate() + date.getMonth()) % 3) + 2; // 2-4 meals/day
+    const meals = Array.from({ length: count }, (_, idx) => {
+      const seed = (date.getDate() + idx + date.getMonth()) % MOCK_MEAL_CATALOG.length;
+      const base = MOCK_MEAL_CATALOG[seed];
+      return {
+        ...base,
+        id: `${date.toISOString()}-${idx}-${base.id}`
+      };
+    });
+
+    const totals = meals.reduce(
+      (acc, meal) => ({
+        calories: acc.calories + meal.calories,
+        protein: acc.protein + meal.protein,
+        carbs: acc.carbs + meal.carbs,
+        fat: acc.fat + meal.fat
+      }),
+      { calories: 0, protein: 0, carbs: 0, fat: 0 }
+    );
+
+    days.push({
+      isoDate: date.toISOString().slice(0, 10),
+      meals,
+      totals
+    });
   }
+
+  return days;
+}
+
+function formatSevenDayRange(days: JournalDay[]) {
+  if (days.length === 0) {
+    return "7-day journal";
+  }
+  const first = new Date(`${days[0].isoDate}T00:00:00`);
+  const last = new Date(`${days[days.length - 1].isoDate}T00:00:00`);
+
+  const start = new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric" }).format(first);
+  const end = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(last);
+  return `${start} – ${end}`;
+}
+
+function formatDayLabel(isoDate: string) {
+  const date = new Date(`${isoDate}T00:00:00`);
   return new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
     month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit"
-  }).format(parsed);
+    day: "numeric"
+  }).format(date);
 }
 
-function getTimeHint(timeSource?: string | null) {
-  if (!timeSource) {
-    return null;
-  }
-  if (timeSource === "default_now") {
-    return "Logged for now. Edit time if needed.";
-  }
-  return null;
-}
-
-function renderMacro(value: number | null) {
-  return value == null ? "—" : `${value} g`;
+function MacroTile({ label, value, unit }: { label: string; value: number; unit: string }) {
+  return (
+    <div className="rounded-xl border border-stone-200/90 bg-stone-50/85 px-3 py-2">
+      <p className="text-[10px] uppercase tracking-[0.12em] text-stone-500">{label}</p>
+      <p className="mt-1 text-sm font-semibold tracking-tight text-stone-900">
+        {value}
+        <span className="ml-1 text-xs font-medium text-stone-500">{unit}</span>
+      </p>
+    </div>
+  );
 }
 
 export default function HistoryPage() {
-  const [meals, setMeals] = useState<RecentMeal[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [editingMealID, setEditingMealID] = useState<number | null>(null);
-  const [editingValue, setEditingValue] = useState("");
-  const [savingMealID, setSavingMealID] = useState<number | null>(null);
-  const [editError, setEditError] = useState<string | null>(null);
-
-  async function loadMeals() {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await getRecentMeals(USER_ID, 20);
-      setMeals(data.items ?? []);
-    } catch {
-      setMeals([]);
-      setError("We couldn't load your recent meals right now. Please try again shortly.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    void loadMeals();
-  }, []);
-
-  function toDateTimeLocalValue(timestamp: string) {
-    const parsed = new Date(timestamp);
-    if (Number.isNaN(parsed.getTime())) {
-      return "";
-    }
-    const pad = (value: number) => String(value).padStart(2, "0");
-    return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
-  }
-
-  async function onSaveMealTime(mealEventID: number) {
-    if (!editingValue) {
-      return;
-    }
-    setSavingMealID(mealEventID);
-    setEditError(null);
-    try {
-      await editMealTime(mealEventID, {
-        user_id: USER_ID,
-        eaten_at: new Date(editingValue).toISOString()
-      });
-      setEditingMealID(null);
-      setEditingValue("");
-      await loadMeals();
-    } catch {
-      setEditError("Could not update meal time right now. Please try again.");
-    } finally {
-      setSavingMealID(null);
-    }
-  }
+  const journalDays = useMemo(() => makeSevenDayJournal(new Date()), []);
+  const rangeLabel = useMemo(() => formatSevenDayRange(journalDays), [journalDays]);
 
   return (
-    <main className="space-y-4">
-      <section className="rounded-xl bg-white p-4 shadow-sm">
-        <h2 className="text-base font-semibold">Meal History</h2>
-        <p className="mt-1 text-sm text-slate-600">Recent meals for user: {USER_ID}</p>
+    <main className="mx-auto w-full max-w-5xl space-y-5 px-4 pb-12 pt-4 sm:space-y-6 sm:px-6 lg:px-8">
+      <section className="rounded-[1.75rem] border border-stone-200/85 bg-gradient-to-b from-stone-50 via-amber-50/45 to-rose-50/20 p-5 shadow-[0_10px_28px_-16px_rgba(120,113,108,0.35)] sm:p-7">
+        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-stone-500">History</p>
+        <h1 className="mt-2 text-2xl font-semibold tracking-tight text-stone-900 sm:text-3xl">7-day nutrition journal</h1>
+        <p className="mt-2 text-base text-stone-700">{rangeLabel}</p>
+        <p className="mt-1 text-sm leading-relaxed text-stone-600">Daily totals and exact meals, grouped by day.</p>
       </section>
 
-      <section className="overflow-hidden rounded-xl bg-white shadow-sm">
-        <table className="min-w-full text-sm">
-          <thead className="bg-slate-100 text-left text-slate-700">
-            <tr>
-              <th className="px-4 py-3 font-medium">Meal</th>
-              <th className="px-4 py-3 font-medium">Time</th>
-              <th className="px-4 py-3 font-medium">Calories</th>
-              <th className="px-4 py-3 font-medium">Protein</th>
-              <th className="px-4 py-3 font-medium">Carbs</th>
-              <th className="px-4 py-3 font-medium">Fat</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading && (
-              <tr>
-                <td className="px-4 py-4 text-slate-500" colSpan={6}>
-                  Loading...
-                </td>
-              </tr>
-            )}
+      <div className="space-y-4 sm:space-y-5">
+        {journalDays.map((day) => (
+          <section
+            key={day.isoDate}
+            className="rounded-[1.45rem] border border-stone-200/85 bg-gradient-to-b from-white to-stone-50/85 p-4 shadow-[0_10px_24px_-18px_rgba(41,37,36,0.4)] sm:p-5"
+          >
+            <header className="mb-3.5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <h2 className="text-lg font-semibold tracking-tight text-stone-900 sm:text-xl">{formatDayLabel(day.isoDate)}</h2>
+              <p className="text-xs text-stone-500">{day.meals.length} meals logged</p>
+            </header>
 
-            {!loading && meals.length === 0 && (
-              <tr>
-                <td className="px-4 py-5 text-center text-slate-500" colSpan={6}>
-                  No meals yet. Start by logging your first meal.
-                </td>
-              </tr>
-            )}
+            <div className="mb-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+              <MacroTile label="Calories" value={day.totals.calories} unit="kcal" />
+              <MacroTile label="Protein" value={day.totals.protein} unit="g" />
+              <MacroTile label="Carbs" value={day.totals.carbs} unit="g" />
+              <MacroTile label="Fat" value={day.totals.fat} unit="g" />
+            </div>
 
-            {!loading &&
-              meals.map((meal) => {
-                const timeHint = getTimeHint(meal.time_source);
-                return (
-                  <tr key={meal.meal_event_id} className="border-t border-slate-100">
-                    <td className="px-4 py-3">{meal.canonical_name}</td>
-                    <td className="px-4 py-3">
-                      <div>{formatPrimaryMealTime(meal.eaten_at)}</div>
-                      {timeHint && <div className="text-xs text-slate-500">{timeHint}</div>}
-                      {editingMealID === meal.meal_event_id ? (
-                        <div className="mt-2 flex items-center gap-2">
-                          <input
-                            type="datetime-local"
-                            value={editingValue}
-                            onChange={(event) => setEditingValue(event.target.value)}
-                            className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => void onSaveMealTime(meal.meal_event_id)}
-                            disabled={savingMealID === meal.meal_event_id || !editingValue}
-                            className="rounded-md bg-slate-900 px-2 py-1 text-xs font-medium text-white"
-                          >
-                            {savingMealID === meal.meal_event_id ? "Saving..." : "Save"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingMealID(null);
-                              setEditingValue("");
-                            }}
-                            className="text-xs text-slate-600"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingMealID(meal.meal_event_id);
-                            setEditingValue(toDateTimeLocalValue(meal.eaten_at));
-                            setEditError(null);
-                          }}
-                          className="mt-1 text-xs font-medium text-slate-600 underline decoration-slate-300 underline-offset-2"
-                        >
-                          Edit time
-                        </button>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">{meal.calories_kcal ?? "—"}</td>
-                    <td className="px-4 py-3">{renderMacro(meal.protein_g)}</td>
-                    <td className="px-4 py-3">{renderMacro(meal.carbohydrate_g)}</td>
-                    <td className="px-4 py-3">{renderMacro(meal.fat_g)}</td>
-                  </tr>
-                );
-              })}
-          </tbody>
-        </table>
-      </section>
-
-      {error && (
-        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{error}</p>
-      )}
-      {editError && <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{editError}</p>}
+            <div className="space-y-2.5">
+              {day.meals.map((meal) => (
+                <article key={meal.id} className="rounded-xl border border-stone-200/90 bg-white/95 px-3.5 py-3 shadow-[0_8px_16px_-14px_rgba(41,37,36,0.45)]">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-stone-500">{meal.time}</p>
+                      <p className="mt-1 text-sm font-medium text-stone-900 sm:text-[15px]">{meal.name}</p>
+                    </div>
+                    <p className="inline-flex rounded-full border border-amber-200/80 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-900">
+                      {meal.calories} kcal
+                    </p>
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-stone-700">
+                    <p>Protein: {meal.protein}g</p>
+                    <p>Carbs: {meal.carbs}g</p>
+                    <p>Fat: {meal.fat}g</p>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
     </main>
   );
 }
