@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { getDailySummary, getRecentMeals, type DailySummaryResponse, type RecentMeal } from "@/lib/api";
 
 type JournalMeal = {
   id: string;
@@ -23,55 +24,16 @@ type JournalDay = {
   };
 };
 
-const MOCK_MEAL_CATALOG: JournalMeal[] = [
-  { id: "a", time: "8:10 AM", name: "Greek yogurt, berries, granola", calories: 430, protein: 28, carbs: 47, fat: 14 },
-  { id: "b", time: "12:40 PM", name: "Chicken rice bowl", calories: 620, protein: 42, carbs: 58, fat: 22 },
-  { id: "c", time: "4:20 PM", name: "Protein shake", calories: 280, protein: 32, carbs: 18, fat: 7 },
-  { id: "d", time: "7:35 PM", name: "Salmon, potatoes, salad", calories: 710, protein: 46, carbs: 52, fat: 30 },
-  { id: "e", time: "9:10 PM", name: "Dark chocolate + almonds", calories: 220, protein: 6, carbs: 14, fat: 16 }
-];
+const USER_ID = "demo-user-001";
 
-function makeSevenDayJournal(rangeEndDate: Date): JournalDay[] {
-  const days: JournalDay[] = [];
-
-  for (let offset = 6; offset >= 0; offset -= 1) {
-    const date = new Date(rangeEndDate);
-    date.setHours(0, 0, 0, 0);
-    date.setDate(date.getDate() - offset);
-
-    const count = (date.getDate() + date.getMonth()) % 5; // 0-4 meals/day in mock data
-    const meals = Array.from({ length: count }, (_, idx) => {
-      const seed = (date.getDate() + idx + date.getMonth()) % MOCK_MEAL_CATALOG.length;
-      const base = MOCK_MEAL_CATALOG[seed];
-      return {
-        ...base,
-        id: `${date.toISOString()}-${idx}-${base.id}`
-      };
-    });
-
-    const totals = meals.reduce(
-      (acc, meal) => ({
-        calories: acc.calories + meal.calories,
-        protein: acc.protein + meal.protein,
-        carbs: acc.carbs + meal.carbs,
-        fat: acc.fat + meal.fat
-      }),
-      { calories: 0, protein: 0, carbs: 0, fat: 0 }
-    );
-
-    days.push({
-      isoDate: date.toISOString().slice(0, 10),
-      meals,
-      totals
-    });
-  }
-
-  return days;
+function toNumber(value: number | null | undefined) {
+  return Math.round(value ?? 0);
 }
 
-function formatSevenDayRange(days: JournalDay[]) {
-  if (days.length === 0) {
-    return "7-day journal";
+function formatMealTime(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "—";
   }
   const first = new Date(`${days[0].isoDate}T00:00:00`);
   const last = new Date(`${days[days.length - 1].isoDate}T00:00:00`);
@@ -83,6 +45,42 @@ function formatSevenDayRange(days: JournalDay[]) {
 
 function formatDayLabel(isoDate: string) {
   const date = new Date(`${isoDate}T00:00:00`);
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(parsed);
+}
+
+function getISODateUTC(date: Date) {
+  const copy = new Date(date);
+  copy.setUTCHours(0, 0, 0, 0);
+  return copy.toISOString().slice(0, 10);
+}
+
+function buildSevenDayWindow(rangeEndDate: Date) {
+  const dates: string[] = [];
+  for (let offset = 6; offset >= 0; offset -= 1) {
+    const d = new Date(rangeEndDate);
+    d.setUTCDate(d.getUTCDate() - offset);
+    dates.push(getISODateUTC(d));
+  }
+  return dates;
+}
+
+function formatSevenDayRange(days: JournalDay[]) {
+  if (days.length === 0) {
+    return "7-day journal";
+  }
+  const first = new Date(`${days[0].isoDate}T00:00:00Z`);
+  const last = new Date(`${days[days.length - 1].isoDate}T00:00:00Z`);
+
+  const start = new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric" }).format(first);
+  const end = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(last);
+  return `${start} – ${end}`;
+}
+
+function formatDayLabel(isoDate: string) {
+  const date = new Date(`${isoDate}T00:00:00Z`);
   return new Intl.DateTimeFormat("en-US", {
     weekday: "long",
     month: "short",
@@ -119,9 +117,7 @@ function DayJournalSection({ day }: { day: JournalDay }) {
 
       <div className="space-y-2.5">
         {day.meals.length === 0 && (
-          <div className="rounded-xl border border-stone-200/90 bg-stone-50/85 px-4 py-4 text-sm text-stone-600">
-            No meals logged.
-          </div>
+          <div className="rounded-xl border border-stone-200/90 bg-stone-50/85 px-4 py-4 text-sm text-stone-600">No meals logged.</div>
         )}
         {day.meals.length > 0 && (
           <div className="hidden rounded-xl border border-stone-200/90 bg-stone-50/75 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.08em] text-stone-500 md:grid md:grid-cols-[120px_1fr_90px_80px_80px_70px]">
@@ -142,9 +138,7 @@ function DayJournalSection({ day }: { day: JournalDay }) {
                   <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-stone-500">{meal.time}</p>
                   <p className="mt-1 text-sm font-medium text-stone-900">{meal.name}</p>
                 </div>
-                <p className="inline-flex rounded-full border border-amber-200/80 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-900">
-                  {meal.calories} kcal
-                </p>
+                <p className="inline-flex rounded-full border border-amber-200/80 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-900">{meal.calories} kcal</p>
               </div>
               <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-stone-700">
                 <p>Protein: {meal.protein}g</p>
@@ -171,21 +165,120 @@ function DayJournalSection({ day }: { day: JournalDay }) {
 export default function HistoryPage() {
   const [rangeEndDate, setRangeEndDate] = useState(() => {
     const now = new Date();
-    now.setHours(0, 0, 0, 0);
+    now.setUTCHours(0, 0, 0, 0);
     return now;
   });
+  const [journalDays, setJournalDays] = useState<JournalDay[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const journalDays = useMemo(() => makeSevenDayJournal(rangeEndDate), [rangeEndDate]);
   const rangeLabel = useMemo(() => formatSevenDayRange(journalDays), [journalDays]);
   const hasAnyMeals = useMemo(() => journalDays.some((day) => day.meals.length > 0), [journalDays]);
 
   function shiftWeek(daysDelta: number) {
     setRangeEndDate((prev) => {
       const next = new Date(prev);
-      next.setDate(prev.getDate() + daysDelta);
+      next.setUTCDate(prev.getUTCDate() + daysDelta);
       return next;
     });
   }
+
+  useEffect(() => {
+    async function loadJournal() {
+      setLoading(true);
+      setError(null);
+
+      const dates = buildSevenDayWindow(rangeEndDate);
+
+      try {
+        const [recentMealsResult, summaries] = await Promise.all([
+          getRecentMeals(USER_ID, 200),
+          Promise.all(
+            dates.map(async (date) => {
+              try {
+                return await getDailySummary(USER_ID, date);
+              } catch {
+                return null;
+              }
+            })
+          )
+        ]);
+
+        const groupedMeals = new Map<string, JournalMeal[]>();
+        for (const date of dates) {
+          groupedMeals.set(date, []);
+        }
+
+        for (const meal of recentMealsResult.items ?? []) {
+          const mealDate = meal.eaten_at.slice(0, 10);
+          if (!groupedMeals.has(mealDate)) {
+            continue;
+          }
+          groupedMeals.get(mealDate)?.push({
+            id: String(meal.meal_event_id),
+            time: formatMealTime(meal.eaten_at),
+            name: meal.canonical_name,
+            calories: toNumber(meal.calories_kcal),
+            protein: toNumber(meal.protein_g),
+            carbs: toNumber(meal.carbohydrate_g),
+            fat: toNumber(meal.fat_g)
+          });
+        }
+
+        const summaryByDate = new Map<string, DailySummaryResponse>();
+        summaries.forEach((summary) => {
+          if (summary?.date) {
+            summaryByDate.set(summary.date, summary);
+          }
+        });
+
+        const nextDays = dates.map((date) => {
+          const meals = groupedMeals.get(date) ?? [];
+          const summary = summaryByDate.get(date);
+
+          const fallbackTotals = meals.reduce(
+            (acc, meal) => ({
+              calories: acc.calories + meal.calories,
+              protein: acc.protein + meal.protein,
+              carbs: acc.carbs + meal.carbs,
+              fat: acc.fat + meal.fat
+            }),
+            { calories: 0, protein: 0, carbs: 0, fat: 0 }
+          );
+
+          return {
+            isoDate: date,
+            meals,
+            totals: {
+              calories: toNumber(summary?.totals?.calories_kcal ?? fallbackTotals.calories),
+              protein: toNumber(summary?.totals?.protein_g ?? fallbackTotals.protein),
+              carbs: toNumber(summary?.totals?.carbohydrate_g ?? fallbackTotals.carbs),
+              fat: toNumber(summary?.totals?.fat_g ?? fallbackTotals.fat)
+            }
+          };
+        });
+
+        setJournalDays(nextDays);
+
+        if (!summaries.some((s) => s !== null)) {
+          setError("Some daily totals are unavailable right now. Showing meal-based estimates where needed.");
+        }
+      } catch {
+        setError("We couldn't load your history right now. Please try again shortly.");
+        setJournalDays(
+          dates.map((date) => ({
+            isoDate: date,
+            meals: [],
+            totals: { calories: 0, protein: 0, carbs: 0, fat: 0 }
+          }))
+        );
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    void loadJournal();
+  }, [rangeEndDate]);
 
   return (
     <main className="mx-auto w-full max-w-5xl space-y-5 px-4 pb-12 pt-4 sm:space-y-6 sm:px-6 lg:px-8">
@@ -194,7 +287,7 @@ export default function HistoryPage() {
         <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-stone-900 sm:text-3xl">7-day nutrition journal</h1>
-            <p className="mt-2 text-xl font-medium tracking-tight text-stone-800 sm:text-2xl">{rangeLabel}</p>
+            <p className="mt-2 text-xl font-medium tracking-tight text-stone-800 sm:text-2xl">{rangeLabel || "7-day journal"}</p>
             <p className="mt-1 text-sm leading-relaxed text-stone-600">Daily totals and exact meals, grouped by day.</p>
           </div>
           <div className="flex items-center gap-2 self-start sm:self-auto">
@@ -216,7 +309,13 @@ export default function HistoryPage() {
         </div>
       </section>
 
-      {!hasAnyMeals ? (
+      {error && <p className="rounded-xl border border-amber-200/80 bg-amber-50/80 px-3.5 py-2.5 text-sm text-amber-900">{error}</p>}
+
+      {loading ? (
+        <section className="rounded-[1.45rem] border border-stone-200/85 bg-gradient-to-b from-white to-stone-50/80 p-6 text-center text-sm text-stone-600 shadow-[0_10px_24px_-18px_rgba(41,37,36,0.4)] sm:p-8">
+          Loading your 7-day journal…
+        </section>
+      ) : !hasAnyMeals ? (
         <section className="rounded-[1.45rem] border border-stone-200/85 bg-gradient-to-b from-white to-stone-50/80 p-6 text-center shadow-[0_10px_24px_-18px_rgba(41,37,36,0.4)] sm:p-8">
           <p className="text-sm font-medium text-stone-700">No meals logged in this 7-day window yet.</p>
           <p className="mt-1 text-xs text-stone-500">Try another week, or start logging meals to build your journal.</p>
