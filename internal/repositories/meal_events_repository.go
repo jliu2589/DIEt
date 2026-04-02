@@ -28,6 +28,16 @@ type RecentMeal struct {
 	Source        string
 }
 
+type MealHistoryRow struct {
+	MealEventID   int64
+	CanonicalName string
+	EatenAt       time.Time
+	CaloriesKcal  *float64
+	ProteinG      *float64
+	CarbohydrateG *float64
+	FatG          *float64
+}
+
 type MealTimeUpdate struct {
 	MealEventID     int64
 	CanonicalName   string
@@ -176,6 +186,53 @@ func (r *MealEventsRepository) UpdateRawTextByIDAndUserID(ctx context.Context, m
 		return fmt.Errorf("update meal_event raw_text by id and user_id: %w", err)
 	}
 	return nil
+}
+
+func (r *MealEventsRepository) ListByUserIDAndDateRange(ctx context.Context, userID string, startDate, endExclusive time.Time) ([]MealHistoryRow, error) {
+	const q = `
+		SELECT
+			me.id,
+			ma.canonical_name,
+			me.eaten_at,
+			ma.calories_kcal,
+			ma.protein_g,
+			ma.carbohydrate_g,
+			ma.fat_g
+		FROM meal_events me
+		INNER JOIN meal_analysis ma ON ma.meal_event_id = me.id
+		WHERE me.user_id = $1
+			AND me.eaten_at >= $2
+			AND me.eaten_at < $3
+			AND me.processing_status = 'processed'
+		ORDER BY me.eaten_at ASC, me.id ASC
+	`
+
+	rows, err := r.db.Query(ctx, q, userID, startDate, endExclusive)
+	if err != nil {
+		return nil, fmt.Errorf("list meals by user and date range: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]MealHistoryRow, 0)
+	for rows.Next() {
+		var item MealHistoryRow
+		if err := rows.Scan(
+			&item.MealEventID,
+			&item.CanonicalName,
+			&item.EatenAt,
+			&item.CaloriesKcal,
+			&item.ProteinG,
+			&item.CarbohydrateG,
+			&item.FatG,
+		); err != nil {
+			return nil, fmt.Errorf("scan meal history row: %w", err)
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate meal history rows: %w", err)
+	}
+	return out, nil
 }
 
 func (r *MealEventsRepository) ListRecentByUserID(ctx context.Context, userID string, limit int) ([]RecentMeal, error) {

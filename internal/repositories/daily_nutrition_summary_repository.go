@@ -222,9 +222,32 @@ func (r *DailyNutritionSummaryRepository) ReconcileForUserDate(ctx context.Conte
 	}
 	summaryDate = time.Date(summaryDate.UTC().Year(), summaryDate.UTC().Month(), summaryDate.UTC().Day(), 0, 0, 0, 0, time.UTC)
 
+	summary, err := r.AggregateForUserDate(ctx, userID, summaryDate)
+	if err != nil {
+		return err
+	}
+
+	if !hasAnyNutrition(*summary) {
+		const deleteQ = `
+			DELETE FROM daily_nutrition_summary
+			WHERE user_id = $1 AND summary_date = $2
+		`
+		if _, err := r.db.Exec(ctx, deleteQ, userID, summaryDate); err != nil {
+			return fmt.Errorf("delete empty daily summary during reconciliation: %w", err)
+		}
+		return nil
+	}
+
+	if _, err := r.UpsertTotals(ctx, *summary); err != nil {
+		return fmt.Errorf("upsert reconciled daily summary: %w", err)
+	}
+	return nil
+}
+
+func (r *DailyNutritionSummaryRepository) AggregateForUserDate(ctx context.Context, userID string, summaryDate time.Time) (*models.DailyNutritionSummary, error) {
 	const aggregateQ = `
-		SELECT
-			SUM(ma.calories_kcal),
+			SELECT
+				SUM(ma.calories_kcal),
 			SUM(ma.protein_g),
 			SUM(ma.carbohydrate_g),
 			SUM(ma.fat_g),
@@ -243,10 +266,10 @@ func (r *DailyNutritionSummaryRepository) ReconcileForUserDate(ctx context.Conte
 			SUM(ma.vitamin_c_mg)
 		FROM meal_events me
 		INNER JOIN meal_analysis ma ON ma.meal_event_id = me.id
-		WHERE me.user_id = $1
-			AND me.eaten_at::date = $2::date
-			AND me.processing_status = 'processed'
-	`
+			WHERE me.user_id = $1
+				AND me.eaten_at::date = $2::date
+				AND me.processing_status = 'processed'
+		`
 
 	summary := models.DailyNutritionSummary{
 		UserID:      userID,
@@ -271,24 +294,9 @@ func (r *DailyNutritionSummaryRepository) ReconcileForUserDate(ctx context.Conte
 		&summary.FolateB9Mcg,
 		&summary.VitaminCMg,
 	); err != nil {
-		return fmt.Errorf("aggregate daily summary for reconciliation: %w", err)
+		return nil, fmt.Errorf("aggregate daily summary: %w", err)
 	}
-
-	if !hasAnyNutrition(summary) {
-		const deleteQ = `
-			DELETE FROM daily_nutrition_summary
-			WHERE user_id = $1 AND summary_date = $2
-		`
-		if _, err := r.db.Exec(ctx, deleteQ, userID, summaryDate); err != nil {
-			return fmt.Errorf("delete empty daily summary during reconciliation: %w", err)
-		}
-		return nil
-	}
-
-	if _, err := r.UpsertTotals(ctx, summary); err != nil {
-		return fmt.Errorf("upsert reconciled daily summary: %w", err)
-	}
-	return nil
+	return &summary, nil
 }
 
 func hasAnyNutrition(s models.DailyNutritionSummary) bool {
