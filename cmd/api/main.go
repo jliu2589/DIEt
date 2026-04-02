@@ -15,7 +15,6 @@ import (
 	"diet/internal/repositories"
 	"diet/internal/server"
 	chatservice "diet/internal/services/chat"
-	inputclassifierservice "diet/internal/services/input_classifier"
 	mealservice "diet/internal/services/meal"
 	openaiservice "diet/internal/services/openai"
 	recommendationsservice "diet/internal/services/recommendations"
@@ -60,7 +59,6 @@ func main() {
 	}
 
 	// 5) Meal service
-	classifierSvc := inputclassifierservice.NewService()
 	mealSvc := mealservice.NewService(
 		repos.MealEvents,
 		repos.MealAnalysis,
@@ -71,7 +69,6 @@ func main() {
 		repos.CanonicalFoods,
 		repos.TxManager,
 		openAIClient,
-		classifierSvc,
 	)
 
 	// 7) User settings service
@@ -99,7 +96,7 @@ func main() {
 	userStateSvc := userstateservice.NewService(repos.UserSettings, repos.WeightEntries)
 
 	// 12) Chat routing service
-	chatSvc := chatservice.NewService(classifierSvc, mealSvc, weightSvc)
+	chatSvc := chatservice.NewService(mealSvc)
 
 	// 13) Recommendations service
 	recommendationsSvc := recommendationsservice.NewService(

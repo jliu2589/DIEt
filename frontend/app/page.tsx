@@ -49,6 +49,7 @@ export default function HomePage() {
   const [chatInput, setChatInput] = useState("");
   const [chatTurns, setChatTurns] = useState<Array<{ id: number; userMessage: string; response: ChatResponse }>>([]);
   const [recentMeals, setRecentMeals] = useState<RecentMeal[]>([]);
+  const [dashboardDate, setDashboardDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [mealsError, setMealsError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
@@ -69,6 +70,7 @@ export default function HomePage() {
     setMealsError(null);
     try {
       const dashboard = await getDashboardToday(DASHBOARD_USER_ID);
+      setDashboardDate(dashboard.date);
       const totals = dashboard.daily_summary.totals;
       setGoals([
         { label: "Calories", consumed: Math.round(totals.calories_kcal), target: 2500, unit: "kcal" },
@@ -80,13 +82,15 @@ export default function HomePage() {
         setRecentMeals(dashboard.recent_meals);
       } else {
         const recent = await getRecentMeals(DASHBOARD_USER_ID, 20);
-        setRecentMeals(recent.items);
+        setRecentMeals(recent.items.filter((meal) => isMealOnDate(meal.eaten_at, dashboard.date)));
       }
     } catch (error) {
       setDashboardError(error instanceof Error ? error.message : "Failed to load dashboard");
       try {
         const recent = await getRecentMeals(DASHBOARD_USER_ID, 20);
-        setRecentMeals(recent.items);
+        const todayIso = new Date().toISOString().slice(0, 10);
+        setDashboardDate(todayIso);
+        setRecentMeals(recent.items.filter((meal) => isMealOnDate(meal.eaten_at, todayIso)));
       } catch (mealsFetchError) {
         setMealsError(mealsFetchError instanceof Error ? mealsFetchError.message : "Failed to load recent meals");
       }
@@ -232,12 +236,12 @@ export default function HomePage() {
         )}
       </section>
 
-      <SectionCard title="Today’s Meals" subtitle="Snapshot list with placeholder totals">
+      <SectionCard title={formatDashboardDate(dashboardDate)} subtitle="Meals logged for this date">
         {mealsError && <p className="mb-3 text-xs text-rose-700">{mealsError}</p>}
         {editMealError && <p className="mb-3 text-xs text-rose-700">{editMealError}</p>}
         {recentMeals.length === 0 ? (
           <div className="rounded-xl border border-stone-200 bg-white/90 px-4 py-6 text-center text-sm text-stone-500">
-            No meals logged yet today — try logging one in chat above.
+            No meals logged for this date — try logging one in chat above.
           </div>
         ) : (
           <div className="space-y-3">
@@ -569,6 +573,27 @@ function toRecommendationList(text: string) {
   }
 
   return [text.trim()].filter(Boolean);
+}
+
+function isMealOnDate(timestamp: string, isoDate: string) {
+  const parsed = new Date(timestamp);
+  if (Number.isNaN(parsed.getTime())) {
+    return false;
+  }
+  return parsed.toISOString().slice(0, 10) === isoDate;
+}
+
+function formatDashboardDate(isoDate: string) {
+  const parsed = new Date(`${isoDate}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) {
+    return "Meals";
+  }
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  }).format(parsed);
 }
 
 function formatTrendLabel(date: string) {
