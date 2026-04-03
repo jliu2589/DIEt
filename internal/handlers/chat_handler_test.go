@@ -30,7 +30,7 @@ func (chatMealStub) ProcessTextMeal(context.Context, mealservice.ProcessTextMeal
 
 func TestChatHandler_PostChat(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	svc := chatservice.NewService(chatMealStub{})
+	svc := chatservice.NewService(chatMealStub{}, nil, nil)
 	h := NewChatHandler(svc, nil)
 	r := gin.New()
 	r.POST("/v1/chat", h.PostChat)
