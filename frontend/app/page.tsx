@@ -71,7 +71,8 @@ export default function HomePage() {
     setMealsError(null);
     try {
       const dashboard = await getDashboardToday(DASHBOARD_USER_ID);
-      setDashboardDate(dashboard.date);
+      const localToday = currentLocalISODate();
+      setDashboardDate(localToday);
       const totals = dashboard.daily_summary.totals;
       setGoals([
         { label: "Calories", consumed: Math.round(totals.calories_kcal), target: 2500, unit: "kcal" },
@@ -80,10 +81,10 @@ export default function HomePage() {
         { label: "Fat", consumed: Math.round(totals.fat_g), target: 75, unit: "g" }
       ]);
       if (Array.isArray(dashboard.recent_meals)) {
-        setRecentMeals(dashboard.recent_meals);
+        setRecentMeals(dashboard.recent_meals.filter((meal) => isMealOnDate(meal.eaten_at, localToday)));
       } else {
         const recent = await getRecentMeals(DASHBOARD_USER_ID, 20);
-        setRecentMeals(recent.items.filter((meal) => isMealOnDate(meal.eaten_at, dashboard.date)));
+        setRecentMeals(recent.items.filter((meal) => isMealOnDate(meal.eaten_at, localToday)));
       }
     } catch (error) {
       setDashboardError(error instanceof Error ? error.message : "Failed to load dashboard");
