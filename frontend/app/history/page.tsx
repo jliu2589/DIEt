@@ -35,34 +35,31 @@ function formatMealTime(value: string) {
   if (Number.isNaN(parsed.getTime())) {
     return "—";
   }
-  const first = new Date(`${days[0].isoDate}T00:00:00`);
-  const last = new Date(`${days[days.length - 1].isoDate}T00:00:00`);
-
-  const start = new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric" }).format(first);
-  const end = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(last);
-  return `${start} – ${end}`;
-}
-
-function formatDayLabel(isoDate: string) {
-  const date = new Date(`${isoDate}T00:00:00`);
   return new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
     minute: "2-digit"
   }).format(parsed);
 }
 
-function getISODateUTC(date: Date) {
+function toLocalISODate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getISODateLocal(date: Date) {
   const copy = new Date(date);
-  copy.setUTCHours(0, 0, 0, 0);
-  return copy.toISOString().slice(0, 10);
+  copy.setHours(0, 0, 0, 0);
+  return toLocalISODate(copy);
 }
 
 function buildSevenDayWindow(rangeEndDate: Date) {
   const dates: string[] = [];
   for (let offset = 6; offset >= 0; offset -= 1) {
     const d = new Date(rangeEndDate);
-    d.setUTCDate(d.getUTCDate() - offset);
-    dates.push(getISODateUTC(d));
+    d.setDate(d.getDate() - offset);
+    dates.push(getISODateLocal(d));
   }
   return dates;
 }
@@ -71,8 +68,8 @@ function formatSevenDayRange(days: JournalDay[]) {
   if (days.length === 0) {
     return "7-day journal";
   }
-  const first = new Date(`${days[0].isoDate}T00:00:00Z`);
-  const last = new Date(`${days[days.length - 1].isoDate}T00:00:00Z`);
+  const first = new Date(`${days[0].isoDate}T12:00:00`);
+  const last = new Date(`${days[days.length - 1].isoDate}T12:00:00`);
 
   const start = new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric" }).format(first);
   const end = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(last);
@@ -80,7 +77,7 @@ function formatSevenDayRange(days: JournalDay[]) {
 }
 
 function formatJournalDayLabel(isoDate: string) {
-  const date = new Date(`${isoDate}T00:00:00Z`);
+  const date = new Date(`${isoDate}T12:00:00`);
   return new Intl.DateTimeFormat("en-US", {
     weekday: "long",
     month: "short",
@@ -165,7 +162,7 @@ function DayJournalSection({ day }: { day: JournalDay }) {
 export default function HistoryPage() {
   const [rangeEndDate, setRangeEndDate] = useState(() => {
     const now = new Date();
-    now.setUTCHours(0, 0, 0, 0);
+    now.setHours(0, 0, 0, 0);
     return now;
   });
   const [journalDays, setJournalDays] = useState<JournalDay[]>([]);
@@ -178,7 +175,7 @@ export default function HistoryPage() {
   function shiftWeek(daysDelta: number) {
     setRangeEndDate((prev) => {
       const next = new Date(prev);
-      next.setUTCDate(prev.getUTCDate() + daysDelta);
+      next.setDate(prev.getDate() + daysDelta);
       return next;
     });
   }
@@ -210,7 +207,11 @@ export default function HistoryPage() {
         }
 
         for (const meal of recentMealsResult.items ?? []) {
-          const mealDate = meal.eaten_at.slice(0, 10);
+          const parsedMealTime = new Date(meal.eaten_at);
+          if (Number.isNaN(parsedMealTime.getTime())) {
+            continue;
+          }
+          const mealDate = toLocalISODate(parsedMealTime);
           if (!groupedMeals.has(mealDate)) {
             continue;
           }
