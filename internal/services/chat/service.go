@@ -3,18 +3,54 @@ package chat
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
+	inputclassifier "diet/internal/services/input_classifier"
 	mealservice "diet/internal/services/meal"
+	weightservice "diet/internal/services/weight"
 )
 
 type MealProcessor interface {
 	ProcessTextMeal(ctx context.Context, input mealservice.ProcessTextMealInput) (*mealservice.ProcessTextMealResult, error)
 }
 
+type InputClassifier interface {
+	Classify(rawText string) string
+}
+
+type WeightProcessor interface {
+	CreateEntry(ctx context.Context, input weightservice.CreateEntryInput) (*weightserviceEntry, error)
+}
+
+type weightserviceEntry struct {
+	Weight   float64
+	Unit     string
+	LoggedAt time.Time
+}
+
+type weightProcessorAdapter struct {
+	inner *weightservice.Service
+}
+
+func (w weightProcessorAdapter) CreateEntry(ctx context.Context, input weightservice.CreateEntryInput) (*weightserviceEntry, error) {
+	entry, err := w.inner.CreateEntry(ctx, input)
+	if err != nil || entry == nil {
+		return nil, err
+	}
+	return &weightserviceEntry{Weight: entry.Weight, Unit: entry.Unit, LoggedAt: entry.LoggedAt}, nil
+}
+
 type Service struct {
-	mealService MealProcessor
+	mealService mealProcessor
+	classifier  InputClassifier
+	weightSvc   WeightProcessor
+}
+
+type mealProcessor interface {
+	ProcessTextMeal(ctx context.Context, input mealservice.ProcessTextMealInput) (*mealservice.ProcessTextMealResult, error)
 }
 
 type Request struct {
@@ -55,8 +91,33 @@ type RecommendationResult struct {
 	Text string `json:"text"`
 }
 
-func NewService(mealService MealProcessor) *Service {
-	return &Service{mealService: mealService}
+func NewService(mealService MealProcessor, classifier InputClassifier, weightSvc *weightservice.Service) *Service {
+	if classifier == nil {
+		classifier = inputclassifier.NewService()
+	}
+	var adapted WeightProcessor
+	if weightSvc != nil {
+		adapted = weightProcessorAdapter{inner: weightSvc}
+	}
+	return &Service{mealService: mealService, classifier: classifier, weightSvc: adapted}
+}
+
+var weightPattern = regexp.MustCompile(`(?i)(\d{2,3}(?:\.\d+)?)\s*(kg|kgs|kilograms?|lb|lbs|pounds?)\b`)
+
+func parseWeightFromMessage(message string) (float64, string, bool) {
+	matches := weightPattern.FindStringSubmatch(message)
+	if len(matches) != 3 {
+		return 0, "", false
+	}
+	weight, err := strconv.ParseFloat(matches[1], 64)
+	if err != nil || weight <= 0 {
+		return 0, "", false
+	}
+	unitRaw := strings.ToLower(matches[2])
+	if strings.HasPrefix(unitRaw, "kg") || strings.HasPrefix(unitRaw, "kilo") {
+		return weight, "kg", true
+	}
+	return weight, "lb", true
 }
 
 func (s *Service) HandleMessage(ctx context.Context, req Request) (*Response, error) {
@@ -67,6 +128,51 @@ func (s *Service) HandleMessage(ctx context.Context, req Request) (*Response, er
 	message := strings.TrimSpace(req.Message)
 	if message == "" {
 		return nil, fmt.Errorf("message is required")
+	}
+
+	intent := inputclassifier.IntentMealLog
+	if s.classifier != nil {
+		intent = s.classifier.Classify(message)
+	}
+
+	switch intent {
+	case inputclassifier.IntentWeightLog:
+		if s.weightSvc == nil {
+			return &Response{Intent: "weight_log", MessageToUser: "Weight logging is unavailable right now."}, nil
+		}
+		weight, unit, ok := parseWeightFromMessage(message)
+		if !ok {
+			return &Response{Intent: "weight_log", MessageToUser: "Please include your weight like '176 lb' or '80 kg'."}, nil
+		}
+		loggedAt := time.Now().UTC()
+		if req.LoggedAt != nil && !req.LoggedAt.IsZero() {
+			loggedAt = req.LoggedAt.UTC()
+		}
+		entry, err := s.weightSvc.CreateEntry(ctx, weightservice.CreateEntryInput{
+			UserID:   userID,
+			Weight:   weight,
+			Unit:     unit,
+			LoggedAt: loggedAt,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("process weight message: %w", err)
+		}
+		return &Response{
+			Intent:        "weight_log",
+			MessageToUser: "Logged your weight.",
+			WeightResult: &WeightResult{
+				Weight:   entry.Weight,
+				Unit:     entry.Unit,
+				LoggedAt: entry.LoggedAt.UTC(),
+			},
+		}, nil
+
+	case inputclassifier.IntentGeneralChat:
+		return &Response{Intent: "general_chat", MessageToUser: "I can log meals and weight. Try: 'chicken bowl' or '176 lb'."}, nil
+	case inputclassifier.IntentRecommendationRequest:
+		return &Response{Intent: "recommendation_request", MessageToUser: "Recommendations are not wired in chat yet."}, nil
+	case inputclassifier.IntentUnknown:
+		return &Response{Intent: "unknown", MessageToUser: "I couldn’t classify that. Try a meal or a weight entry."}, nil
 	}
 
 	mealResult, err := s.mealService.ProcessTextMeal(ctx, mealservice.ProcessTextMealInput{
