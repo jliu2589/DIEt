@@ -105,6 +105,20 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
+    const interval = window.setInterval(() => {
+      const todayIso = new Date().toISOString().slice(0, 10);
+      if (todayIso !== dashboardDate) {
+        setTrendPointsByRange({});
+        void refreshDashboard();
+      }
+    }, 60_000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [dashboardDate]);
+
+  useEffect(() => {
     const alreadyLoaded = trendPointsByRange[activeRange];
     if (alreadyLoaded) {
       return;
