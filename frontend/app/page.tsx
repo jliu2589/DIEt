@@ -49,7 +49,7 @@ export default function HomePage() {
   const [chatInput, setChatInput] = useState("");
   const [chatTurns, setChatTurns] = useState<Array<{ id: number; userMessage: string; response: ChatResponse }>>([]);
   const [recentMeals, setRecentMeals] = useState<RecentMeal[]>([]);
-  const [dashboardDate, setDashboardDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [dashboardDate, setDashboardDate] = useState<string>(currentLocalISODate());
   const [mealsError, setMealsError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
@@ -89,7 +89,7 @@ export default function HomePage() {
       setDashboardError(error instanceof Error ? error.message : "Failed to load dashboard");
       try {
         const recent = await getRecentMeals(DASHBOARD_USER_ID, 20);
-        const todayIso = new Date().toISOString().slice(0, 10);
+        const todayIso = currentLocalISODate();
         setDashboardDate(todayIso);
         setRecentMeals(recent.items.filter((meal) => isMealOnDate(meal.eaten_at, todayIso)));
       } catch (mealsFetchError) {
@@ -103,6 +103,20 @@ export default function HomePage() {
   useEffect(() => {
     void refreshDashboard();
   }, []);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      const todayIso = currentLocalISODate();
+      if (todayIso !== dashboardDate) {
+        setTrendPointsByRange({});
+        void refreshDashboard();
+      }
+    }, 60_000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [dashboardDate]);
 
   useEffect(() => {
     const alreadyLoaded = trendPointsByRange[activeRange];
@@ -587,6 +601,17 @@ function ChatResponseBlock({ response }: { response: ChatResponse }) {
   return <p className="text-sm text-stone-700">{response.message_to_user || "Thanks for your message."}</p>;
 }
 
+function currentLocalISODate() {
+  return toLocalISODate(new Date());
+}
+
+function toLocalISODate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function toRecommendationList(text: string) {
   const raw = text
     .split(/\n|;/)
@@ -612,11 +637,11 @@ function isMealOnDate(timestamp: string, isoDate: string) {
   if (Number.isNaN(parsed.getTime())) {
     return false;
   }
-  return parsed.toISOString().slice(0, 10) === isoDate;
+  return toLocalISODate(parsed) === isoDate;
 }
 
 function formatDashboardDate(isoDate: string) {
-  const parsed = new Date(`${isoDate}T00:00:00Z`);
+  const parsed = new Date(`${isoDate}T12:00:00`);
   if (Number.isNaN(parsed.getTime())) {
     return "Meals";
   }
